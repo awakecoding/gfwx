@@ -83,12 +83,12 @@ namespace GFWX
 			: sizex(sizex), sizey(sizey), layers(layers), channels(channels), bitDepth(bitDepth), quality(std::max(1, std::min(int(QualityMax), quality))),
 			chromaScale(std::max(1, std::min(256, chromaScale))), blockSize(std::min(30, std::max(2, blockSize))), filter(std::min(255, filter)),
 			quantization(std::min(255, quantization)), encoder(std::min(255, encoder)), intent(std::min(255, intent)) {}
-    size_t bufferSize() const
-    {
-      size_t const part1 = static_cast<size_t>(sizex) * sizey;
-      size_t const part2 = static_cast<size_t>(channels) * layers * ((bitDepth + 7) / 8);
-      return std::log(part1) + std::log(part2) > std::log(std::numeric_limits<size_t>::max() - 1) ? 0 : part1 * part2;
-    }
+		size_t bufferSize() const
+		{
+			size_t const part1 = static_cast<size_t>(sizex) * sizey;
+			size_t const part2 = static_cast<size_t>(channels) * layers * ((bitDepth + 7) / 8);
+			return std::log(part1) + std::log(part2) > std::log(std::numeric_limits<size_t>::max() - 1) ? 0 : part1 * part2;
+		}
 	};
 
 	template<typename T> struct Image	// handy wrapper for 2D image data
@@ -203,7 +203,7 @@ namespace GFWX
 	template<int pot> uint32_t unsignedDecode(Bits & stream)
 	{
 		uint32_t x = stream.getZeros(12);
-    int const p = pot < 24 ? pot : 24;  // actual pot. The max 108 below is to prevent unlimited recursion in malformed files, yet admit 2^32 - 1.
+		int const p = pot < 24 ? pot : 24;  // actual pot. The max 108 below is to prevent unlimited recursion in malformed files, yet admit 2^32 - 1.
 		return (pot < 108 && x == 12) ? (12 << p) + unsignedDecode<pot < 108 ? pot + 4 : 108>(stream) : p ? (x << p) + stream.getBits(p) : x;
 	}
 
@@ -690,8 +690,8 @@ namespace GFWX
 	{
 		typedef typename std::remove_reference<decltype(imageData[0])>::type base;
 		typedef typename std::conditional<sizeof(base) < 2, int16_t, int32_t>::type aux;
-    if (header.sizex > (1 << 30) || header.sizey > (1 << 30))  // [NOTE] current implementation can't go over 2^30
-      return ErrorMalformed;
+		if (header.sizex > (1 << 30) || header.sizey > (1 << 30))  // [NOTE] current implementation can't go over 2^30
+			return ErrorMalformed;
 		Bits stream(reinterpret_cast<uint32_t *>(buffer), reinterpret_cast<uint32_t *>(buffer) + size / 4);
 		stream.putBits('G' | ('F' << 8) | ('W' << 16) | ('X' << 24), 32);
 		stream.putBits(header.version = 1, 32);
@@ -826,8 +826,8 @@ namespace GFWX
 		header.quantization = stream.getBits(8);
 		header.encoder = stream.getBits(8);
 		header.intent = stream.getBits(8);
-    if (header.sizex < 0 || header.sizex > (1 << 30) || header.sizey < 0 || header.sizey > (1 << 30) || header.bufferSize() == 0)
-      return ErrorMalformed;  // [NOTE] current implementation can't go over 2^30
+		if (header.sizex < 0 || header.sizex > (1 << 30) || header.sizey < 0 || header.sizey > (1 << 30) || header.bufferSize() == 0)
+			return ErrorMalformed;  // [NOTE] current implementation can't go over 2^30
 		if (!imageData)		// just header
 			return ResultOk;
 		if (header.isSigned != (std::numeric_limits<base>::is_signed ? 1 : 0) || header.bitDepth > std::numeric_limits<base>::digits)
@@ -844,7 +844,7 @@ namespace GFWX
 		{
 			transformProgram.push_back(signedDecode<2>(stream));	// channel
 			if (transformProgram.back() >= static_cast<int>(isChroma.size()))
-          return ErrorMalformed;
+				return ErrorMalformed;
 			if (transformProgram.back() < 0)
 				break;
 			transformSteps.push_back(int(transformProgram.size()) - 1);
@@ -853,8 +853,8 @@ namespace GFWX
 				if (stream.indexBits < 0)	// test for truncation
 					return nextPointOfInterest;	// need more data
 				transformProgram.push_back(signedDecode<2>(stream));	// other channel
-        if (transformProgram.back() >= static_cast<int>(isChroma.size()))
-            return ErrorMalformed;
+				if (transformProgram.back() >= static_cast<int>(isChroma.size()))
+					return ErrorMalformed;
 				if (transformProgram.back() < 0)
 					break;
 				transformProgram.push_back(signedDecode<2>(stream));	// factor
