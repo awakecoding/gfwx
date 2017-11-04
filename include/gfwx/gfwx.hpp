@@ -1,7 +1,7 @@
 //  Good, Fast Wavelet Codec "GFWX" v1
 //  ----------------------------------
-//  December 1, 2015
-//  Author: Graham Fyffe <fyffe@ict.usc.edu> or <gfyffe@gmail.com>
+//  December 1, 2015 [patched on Oct 20, 2017]
+//  Author: Graham Fyffe <gfyffe@gmail.com> or <fyffe@google.com>, and Google, Inc.
 //  Website: www.gfwx.org
 //  Features:
 //  - FAST
@@ -49,8 +49,16 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
-#if defined(_OPENMP)
+#if defined(_OPENMP) && defined(_MSC_VER)
+#define OMP_PARALLEL_FOR(X) __pragma(omp parallel for schedule(dynamic, X))
+#elif defined(_OPENMP)
 #include <omp.h>
+#define STR(X) #X
+#define STRINGIFY(X) STR(X)
+#define TWO_ARGUMENTS(X,Y,Z) X(Y, Z)
+#define OMP_PARALLEL_FOR(X) _Pragma(STRINGIFY(TWO_ARGUMENTS(omp parallel for schedule, dynamic, X)))
+#else
+#define OMP_PARALLEL_FOR(X)
 #endif
 
 namespace GFWX
@@ -58,7 +66,7 @@ namespace GFWX
 	enum
 	{
 		QualityMax = 1024,		// compress with QualityMax for 100% lossless, or less than QualityMax for lossy
-		ThreadIterations = 8,	// OMP settings tuned on my machine with large images
+		ThreadIterations = 64,	// OMP settings tuned on my machine with large images
 		BitDepthAuto = 0, BlockDefault = 7, BlockMax = 30,
 		FilterLinear = 0, FilterCubic = 1, QuantizationScalar = 0, EncoderTurbo = 0, EncoderFast = 1, EncoderContextual = 2,
 		IntentGeneric = 0, IntentMono = 1, IntentBayerRGGB = 2, IntentBayerBGGR = 3, IntentBayerGRBG = 4, IntentBayerGBRG = 5, IntentBayerGeneric = 6,
@@ -75,6 +83,12 @@ namespace GFWX
 			: sizex(sizex), sizey(sizey), layers(layers), channels(channels), bitDepth(bitDepth), quality(std::max(1, std::min(int(QualityMax), quality))),
 			chromaScale(std::max(1, std::min(256, chromaScale))), blockSize(std::min(30, std::max(2, blockSize))), filter(std::min(255, filter)),
 			quantization(std::min(255, quantization)), encoder(std::min(255, encoder)), intent(std::min(255, intent)) {}
+    size_t bufferSize() const
+    {
+      size_t const part1 = static_cast<size_t>(sizex) * sizey;
+      size_t const part2 = static_cast<size_t>(channels) * layers * ((bitDepth + 7) / 8);
+      return std::log(part1) + std::log(part2) > std::log(std::numeric_limits<size_t>::max() - 1) ? 0 : part1 * part2;
+    }
 	};
 
 	template<typename T> struct Image	// handy wrapper for 2D image data
@@ -82,7 +96,7 @@ namespace GFWX
 		T * data;
 		int sizex, sizey;
 		Image(T * data, int sizex, int sizey) : data(data), sizex(sizex), sizey(sizey) {}
-		T * operator[] (int y) { return data + y * sizex; }
+		T * operator[] (int y) { return data + static_cast<size_t>(y) * sizex; }
 	};
 
 	struct Bits	// handy wrapper for treating an array of unsigned ints as a bit stream
@@ -91,16 +105,87 @@ namespace GFWX
 		uint32_t writeCache;
 		int indexBits;	// -1 indicates buffer overflow
 		Bits(uint32_t * buffer, uint32_t * bufferEnd) : buffer(buffer), bufferEnd(bufferEnd), writeCache(0), indexBits(0) {}
-		uint32_t getBits(int bits);
-
-		void putBits(uint32_t x, int bits);
-
-		uint32_t getZeros(uint32_t maxZeros);
-
-		void flushWriteWord();
-
-		void flushReadWord();
-        
+		uint32_t getBits(int bits)
+		{
+			int newBits = indexBits + bits;
+			if (buffer == bufferEnd)
+				return indexBits = -1;	// signify overflow
+			uint32_t x = *buffer << indexBits;
+			if (newBits >= 32)
+			{
+				++ buffer;
+				if ((newBits -= 32) > 0)
+				{
+					if (buffer == bufferEnd)
+						return indexBits = -1;	// signify overflow
+					x |= *buffer >> (32 - indexBits);
+				}
+			}
+			indexBits = newBits;
+			return x >> (32 - bits);
+		}
+		void putBits(uint32_t x, int bits)
+		{
+			int newBits = indexBits + bits;
+			if (buffer == bufferEnd)
+				newBits = -1;	// signify overflow
+			else if (newBits < 32)
+				(writeCache <<= bits) |= x;
+			else if (bits == 32 && newBits == 32)
+			{
+				newBits = 0;
+				*(buffer ++) = x;
+			}
+			else
+			{
+				newBits -= 32;
+				*(buffer ++) = (writeCache << (bits - newBits)) | (x >> newBits);
+				writeCache = x;
+			}
+			indexBits = newBits;
+		}
+		uint32_t getZeros(uint32_t maxZeros)
+		{
+			int newBits = indexBits;
+			if (buffer == bufferEnd)
+				return indexBits = -1;	// signify overflow
+			uint32_t b = *buffer;
+			uint32_t x = 0;
+			while (true)
+			{
+				if (newBits == 31)
+				{
+					++ buffer;
+					if ((b & 1u) || (++ x == maxZeros))
+					{
+						indexBits = 0;
+						return x;
+					}
+					if (buffer == bufferEnd)
+						return indexBits = -1;	// signify overflow
+					b = *buffer;
+					newBits = 0;
+					continue;
+				}
+				if (((b << newBits) & (1u << 31)) || (++ x == maxZeros))
+				{
+					indexBits = newBits + 1;
+					return x;
+				}
+				++ newBits;
+			}
+		}
+		void flushWriteWord()	// [NOTE] does not clear overflow
+		{
+			putBits(0, (32 - indexBits) % 32);
+		}
+		void flushReadWord()	// [NOTE] does not clear overflow
+		{
+			if (indexBits <= 0)
+				return;
+			++ buffer;
+			indexBits = 0;
+		}
 	};
 
 	template<int pot> void unsignedCode(uint32_t x, Bits & stream)	// limited length power-of-two Golomb-Rice code
@@ -118,7 +203,8 @@ namespace GFWX
 	template<int pot> uint32_t unsignedDecode(Bits & stream)
 	{
 		uint32_t x = stream.getZeros(12);
-		return (x == 12) ? (12 << (pot)) + unsignedDecode<pot < 20 ? pot + 4 : 24>(stream) : pot ? (x << (pot)) + stream.getBits(pot) : x;
+    int const p = pot < 24 ? pot : 24;  // actual pot. The max 108 below is to prevent unlimited recursion in malformed files, yet admit 2^32 - 1.
+		return (pot < 108 && x == 12) ? (12 << p) + unsignedDecode<pot < 108 ? pot + 4 : 108>(stream) : p ? (x << p) + stream.getBits(p) : x;
 	}
 
 	template<int pot> void interleavedCode(int x, Bits & stream)
@@ -168,7 +254,7 @@ namespace GFWX
 		{
 			if (step < sizex)	// horizontal lifting
 			{
-				#pragma omp parallel for schedule(dynamic, ThreadIterations)
+				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = 0; y < sizey; y += step)
 				{
 					int x;
@@ -201,7 +287,7 @@ namespace GFWX
 			}
 			if (step < sizey)	// vertical lifting
 			{
-				#pragma omp parallel for schedule(dynamic, ThreadIterations)
+				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = step; y < sizey; y += step * 2)
 				{
 					T * const base = &image[y0 + y][x0];
@@ -216,7 +302,7 @@ namespace GFWX
 					else for (int x = 0; x < sizex; x += step)
 						base[x] -= (c1base[x] + c2base[x]) / 2;
 				}
-				#pragma omp parallel for schedule(dynamic, ThreadIterations)
+				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = step * 2; y < sizey; y += step * 2)
 				{
 					T * const base = &image[y0 + y][x0];
@@ -247,7 +333,7 @@ namespace GFWX
 		{
 			if (step < sizey)	// vertical unlifting
 			{
-				#pragma omp parallel for schedule(dynamic, ThreadIterations)
+				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = step * 2; y < sizey; y += step * 2)
 				{
 					T * const base = &image[y0 + y][x0];
@@ -262,7 +348,7 @@ namespace GFWX
 					else for (int x = 0; x < sizex; x += step)
 						base[x] -= (g1base[x] + g2base[x]) / 4;
 				}
-				#pragma omp parallel for schedule(dynamic, ThreadIterations)
+				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = step; y < sizey; y += step * 2)
 				{
 					T * const base = &image[y0 + y][x0];
@@ -280,7 +366,7 @@ namespace GFWX
 			}
 			if (step < sizex)	// horizontal unlifting
 			{
-				#pragma omp parallel for schedule(dynamic, ThreadIterations)
+				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = 0; y < sizey; y += step)
 				{
 					int x;
@@ -325,7 +411,7 @@ namespace GFWX
 		{
 			int const q = std::max(std::max(1, minQ), quality);
 			if (q >= maxQ) break;
-			#pragma omp parallel for schedule(dynamic, ThreadIterations)
+			OMP_PARALLEL_FOR(ThreadIterations)
 			for (int y = 0; y < sizey; y += skip)
 			{
 				T * base = &image[y0 + y][x0];
@@ -389,10 +475,10 @@ namespace GFWX
 	{
 		int const sizex = x1 - x0;
 		int const sizey = y1 - y0;
-		if (hasDC)
+		if (hasDC && sizex > 0 && sizey > 0)
 			signedCode<4>(image[y0][x0], stream);
 		std::pair<uint32_t, uint32_t> context(0, 0);
-		int run = 0, runCoder = (scheme == EncoderTurbo ? q * step < 2048 ? 1 : 0 : 0);
+		int run = 0, runCoder = (scheme == EncoderTurbo ? (!q || (step < 2048 && q * step < 2048)) ? 1 : 0 : 0);  // avoid overflow checking q * step < 2048
 		for (int y = 0; y < sizey; y += step)
 		{
 			T * base = &image[y0 + y][x0];
@@ -476,10 +562,10 @@ namespace GFWX
 	{
 		int const sizex = x1 - x0;
 		int const sizey = y1 - y0;
-		if (hasDC)
+		if (hasDC && sizex > 0 && sizey > 0)
 			image[y0][x0] = signedDecode<4>(stream);
 		std::pair<uint32_t, uint32_t> context(0, 0);
-		int run = -1, runCoder = (scheme == EncoderTurbo ? q * step < 2048 ? 1 : 0 : 0);
+		int run = -1, runCoder = (scheme == EncoderTurbo ? (!q || (step < 2048 && q * step < 2048)) ? 1 : 0 : 0);  // avoid overflow checking q * step < 2048
 		for (int y = 0; y < sizey; y += step)
 		{
 			T * base = &image[y0 + y][x0];
@@ -550,15 +636,15 @@ namespace GFWX
 
 	template<typename T> void shiftVector(T * data, int shift, int count)
 	{
-		#pragma omp parallel for schedule(dynamic, ThreadIterations * ThreadIterations)
+		OMP_PARALLEL_FOR(ThreadIterations * ThreadIterations)
 		for (int i = 0; i < count; ++ i)
 			data[i] >>= shift;
 	}
 
-	template<typename I, typename A> void transformTerm(int * & pc, A * destination, A const * auxData, int const bufferSize,
+	template<typename I, typename A> void transformTerm(int const * & pc, A * destination, A const * auxData, int const bufferSize,
 		I const & imageData, Header const & header, std::vector<int> const & isChroma, int boost)
 	{
-		while (*pc != -1)
+		while (*pc >= 0)
 		{
 			int const c = *(pc ++);
 			A const factor = *(pc ++);
@@ -566,14 +652,14 @@ namespace GFWX
 			{
 				auto layer = imageData + ((c / header.channels) * bufferSize * header.channels + c % header.channels);
 				A const boostFactor = boost * factor;
-				#pragma omp parallel for schedule(dynamic, ThreadIterations * ThreadIterations)
+				OMP_PARALLEL_FOR(ThreadIterations * ThreadIterations)
 				for (int i = 0; i < bufferSize; ++ i)
 					destination[i] += layer[i * header.channels] * boostFactor;
 			}
 			else
 			{
 				A const * auxDataC = auxData + c * bufferSize;
-				#pragma omp parallel for schedule(dynamic, ThreadIterations * ThreadIterations)
+				OMP_PARALLEL_FOR(ThreadIterations * ThreadIterations)
 				for (int i = 0; i < bufferSize; ++ i)
 					destination[i] += auxDataC[i] * factor;
 			}
@@ -587,7 +673,7 @@ namespace GFWX
 			shiftVector(destination, 3, bufferSize);
 		else if (denom > 1)	// [NOTE] disallow non-positive denominators
 		{
-			#pragma omp parallel for schedule(dynamic, ThreadIterations * ThreadIterations)
+			OMP_PARALLEL_FOR(ThreadIterations * ThreadIterations)
 			for (int i = 0; i < bufferSize; ++ i)
 				destination[i] /= denom;
 		}
@@ -600,10 +686,12 @@ namespace GFWX
 	#define GFWX_TRANSFORM_A710_RGB { 0, 1, -1, -1, 1, 1, 2, 1, -2, 0, -1, -1, 2, 1, 1, 2, 2, 0, 3, -1, 8, 0, -1 }
 
 	template<typename I> ptrdiff_t compress(I const & imageData, Header & header, uint8_t * buffer, size_t size,
-		int * channelTransform, uint8_t * metaData, size_t metaDataSize)
+		int const * channelTransform, uint8_t * metaData, size_t metaDataSize)
 	{
 		typedef typename std::remove_reference<decltype(imageData[0])>::type base;
 		typedef typename std::conditional<sizeof(base) < 2, int16_t, int32_t>::type aux;
+    if (header.sizex > (1 << 30) || header.sizey > (1 << 30))  // [NOTE] current implementation can't go over 2^30
+      return ErrorMalformed;
 		Bits stream(reinterpret_cast<uint32_t *>(buffer), reinterpret_cast<uint32_t *>(buffer) + size / 4);
 		stream.putBits('G' | ('F' << 8) | ('W' << 16) | ('X' << 24), 32);
 		stream.putBits(header.version = 1, 32);
@@ -629,19 +717,19 @@ namespace GFWX
 		int const boost = header.quality == QualityMax ? 1 : 8;	// [NOTE] due to Cubic lifting max multiplier of 20, boost * 20 must be less than 256
 		if (channelTransform)	// run color transform program (and also encode it to the file)
 		{
-			int * pc = channelTransform;
-			while (*pc != -1)
+			int const * pc = channelTransform;
+			while (*pc >= 0)
 			{
 				int const c = *(pc ++);
 				aux * destination = &auxData[c * bufferSize];
 				transformTerm(pc, destination, &auxData[0], bufferSize, imageData, header, isChroma, boost);
 				auto layer = imageData + ((c / header.channels) * bufferSize * header.channels + c % header.channels);
-				#pragma omp parallel for schedule(dynamic, ThreadIterations * ThreadIterations)
+				OMP_PARALLEL_FOR(ThreadIterations * ThreadIterations)
 				for (int i = 0; i < bufferSize; ++ i)
 					destination[i] += layer[i * header.channels] * boost;
 				isChroma[c] = *(pc ++);
 			}
-			for (int * i = channelTransform; i <= pc; ++ i)
+			for (int const * i = channelTransform; i <= pc; ++ i)
 				signedCode<2>(*i, stream);
 		}
 		else
@@ -651,7 +739,7 @@ namespace GFWX
 		{
 			aux * destination = &auxData[c * bufferSize];
 			auto layer = imageData + ((c / header.channels) * bufferSize * header.channels + c % header.channels);
-			#pragma omp parallel for schedule(dynamic, ThreadIterations * ThreadIterations)
+			OMP_PARALLEL_FOR(ThreadIterations * ThreadIterations)
 			for (int i = 0; i < bufferSize; ++ i)
 				destination[i] = layer[i * header.channels] * boost;
 			isChroma[c] = 0;
@@ -688,7 +776,7 @@ namespace GFWX
 				streamBlock[block].buffer = blockBegin + (stream.bufferEnd - blockBegin) * block / blockCount;
 			for (int block = 0; block < blockCount; ++ block)
 				streamBlock[block].bufferEnd = block + 1 < blockCount ? streamBlock[block + 1].buffer : stream.bufferEnd;
-			#pragma omp parallel for schedule(dynamic, 4)	// [MAGIC] for some reason, 4 is by far the best option here
+			OMP_PARALLEL_FOR(4)	// [MAGIC] for some reason, 4 is by far the best option here
 			for (int block = 0; block < blockCount; ++ block)
 			{
 				int const bx = block % blockCountX, by = (block / blockCountX) % blockCountY, c = block / (blockCountX * blockCountY);
@@ -738,6 +826,8 @@ namespace GFWX
 		header.quantization = stream.getBits(8);
 		header.encoder = stream.getBits(8);
 		header.intent = stream.getBits(8);
+    if (header.sizex < 0 || header.sizex > (1 << 30) || header.sizey < 0 || header.sizey > (1 << 30) || header.bufferSize() == 0)
+      return ErrorMalformed;  // [NOTE] current implementation can't go over 2^30
 		if (!imageData)		// just header
 			return ResultOk;
 		if (header.isSigned != (std::numeric_limits<base>::is_signed ? 1 : 0) || header.bitDepth > std::numeric_limits<base>::digits)
@@ -753,7 +843,9 @@ namespace GFWX
 		while (true)	// decode color transform program (including isChroma flags)
 		{
 			transformProgram.push_back(signedDecode<2>(stream));	// channel
-			if (transformProgram.back() == -1)
+			if (transformProgram.back() >= static_cast<int>(isChroma.size()))
+          return ErrorMalformed;
+			if (transformProgram.back() < 0)
 				break;
 			transformSteps.push_back(int(transformProgram.size()) - 1);
 			while (true)
@@ -761,7 +853,9 @@ namespace GFWX
 				if (stream.indexBits < 0)	// test for truncation
 					return nextPointOfInterest;	// need more data
 				transformProgram.push_back(signedDecode<2>(stream));	// other channel
-				if (transformProgram.back() == -1)
+        if (transformProgram.back() >= static_cast<int>(isChroma.size()))
+            return ErrorMalformed;
+				if (transformProgram.back() < 0)
 					break;
 				transformProgram.push_back(signedDecode<2>(stream));	// factor
 			}
@@ -797,7 +891,7 @@ namespace GFWX
 				isTruncated = false;
 			int const stepDown = step >> downsampling;
 			int64_t const bsDown = int64_t(stepDown) << header.blockSize;
-			#pragma omp parallel for schedule(dynamic, 4)	// [MAGIC] for some reason, 4 is by far the best option here
+			OMP_PARALLEL_FOR(4)	// [MAGIC] for some reason, 4 is by far the best option here
 			for (int block = 0; block < blockCount; ++ block) if (!test && streamBlock[block].bufferEnd <= stream.bufferEnd)
 			{
 				int const bx = block % blockCountX, by = (block / blockCountX) % blockCountY, c = block / (blockCountX * blockCountY);
@@ -836,12 +930,12 @@ namespace GFWX
 		}
 		for (int s = (int)transformSteps.size() - 1; s >= 0; -- s)	// run color transform program in reverse
 		{
-			int * pc = &transformProgram[transformSteps[s]];
+			int const * pc = &transformProgram[transformSteps[s]];
 			int const c = *(pc ++);
 			std::vector<aux> transformTemp(bufferSize, 0);
 			transformTerm(pc, &transformTemp[0], &auxData[0], bufferSize, imageData, header, isChroma, boost);
 			aux * destination = &auxData[c * bufferSize];
-			#pragma omp parallel for schedule(dynamic, ThreadIterations * ThreadIterations)
+			OMP_PARALLEL_FOR(ThreadIterations * ThreadIterations)
 			for (int i = 0; i < bufferSize; ++ i)
 				destination[i] -= transformTemp[i];
 		}
@@ -851,14 +945,14 @@ namespace GFWX
 			auto layer = imageData + ((c / header.channels) * bufferSize * header.channels + c % header.channels);
 			if (boost == 1)
 			{
-				#pragma omp parallel for schedule(dynamic, ThreadIterations * ThreadIterations)
+				OMP_PARALLEL_FOR(ThreadIterations * ThreadIterations)
 				for (int i = 0; i < bufferSize; ++ i)
 					layer[i * header.channels] = static_cast<base>(std::max(static_cast<aux>(std::numeric_limits<base>::lowest()),
 						std::min(static_cast<aux>(std::numeric_limits<base>::max()), static_cast<aux>(destination[i]))));
 			}
 			else
 			{
-				#pragma omp parallel for schedule(dynamic, ThreadIterations * ThreadIterations)
+				OMP_PARALLEL_FOR(ThreadIterations * ThreadIterations)
 				for (int i = 0; i < bufferSize; ++ i)
 					layer[i * header.channels] = static_cast<base>(std::max(static_cast<aux>(std::numeric_limits<base>::lowest()),
 						std::min(static_cast<aux>(std::numeric_limits<base>::max()), static_cast<aux>(destination[i] / boost))));
@@ -867,7 +961,7 @@ namespace GFWX
 			{
 				int const bayerNoiseThresh = ((QualityMax + header.quality / 2) / header.quality + (QualityMax + chromaQuality / 2) / chromaQuality) * 2;
 				Image<aux> auxImage(&auxData[c * bufferSize], sizexDown, sizeyDown);
-				#pragma omp parallel for schedule(dynamic, ThreadIterations)
+				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = 1; y < sizeyDown - 1; ++ y)
 					for (int x = 1 + (y + (header.intent == IntentBayerGBRG || header.intent == IntentBayerGRBG ? 1 : 0)) % 2; x < sizexDown - 1; x += 2)
 					{

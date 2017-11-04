@@ -1,13 +1,21 @@
+
 #include <iomanip>
 #include <fstream>
-#include <sys/time.h>
 
+#ifdef WITH_OPENCV
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
+#endif
+
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#else
+#include <sys/time.h>
+#define ULONGLONG unsigned long long
+#endif
 
 #include <gfwx/gfwx.hpp>
-
-#define ULONGLONG unsigned long long
 
 unsigned int filesize(const char* filename)
 {
@@ -15,6 +23,7 @@ unsigned int filesize(const char* filename)
     return in.tellg(); 
 }
 
+#ifndef _WIN32
 unsigned long long GetTickCount64(void)
 {
     ULONGLONG ticks = 0;
@@ -39,6 +48,7 @@ unsigned long long GetTickCount64(void)
 #endif
     return ticks;
 }
+#endif
 
 int main(int argc, char const * argv[])
 {
