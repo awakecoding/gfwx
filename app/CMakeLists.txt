@@ -2,12 +2,6 @@
 set(MODULE_NAME "gfwx-app")
 set(MODULE_PREFIX "GFWX_APP")
 
-find_package(OpenCV)
-
-if(OPENCV_FOUND)
-	add_definitions("-DWITH_OPENCV")
-endif()
-
 # zlib
 
 find_path(ZLIB_INCLUDE_DIR
@@ -73,13 +67,15 @@ if(OPENMP_FOUND)
 endif()
 
 set(${MODULE_PREFIX}_HEADERS
+	gfwx_color.h
+	gfwx_image.h
 	gfwx_file.h
 	gfwx_time.h
-	gfwx_img.h
 	gfwx_app.h)
 
 set(${MODULE_PREFIX}_SOURCES
-	gfwx_img.c
+	gfwx_color.c
+	gfwx_image.c
 	gfwx_file.c
 	gfwx_time.c
 	gfwx_app.cpp)
@@ -87,10 +83,6 @@ set(${MODULE_PREFIX}_SOURCES
 add_executable(${MODULE_NAME} ${${MODULE_PREFIX}_SOURCES} ${${MODULE_PREFIX}_HEADERS})
 
 set(${MODULE_PREFIX}_LIBS gfwx)
-
-if(OPENCV_FOUND)
-	list(APPEND ${MODULE_PREFIX}_LIBS ${OpenCV_LIBS})
-endif()
 
 if(PNG_FOUND)
 	list(APPEND ${MODULE_PREFIX}_LIBS png)

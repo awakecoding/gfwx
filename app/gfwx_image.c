@@ -1,5 +1,5 @@
 
-#include "gfwx_img.h"
+#include "gfwx_image.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,7 +9,7 @@
 
 #include <libpng16/png.h>
 
-int gfwx_PngWriteFile(const char* filename, uint8_t* data, uint32_t width, uint32_t height)
+int gfwx_PngWriteFile(const char* filename, uint8_t* data, uint32_t width, uint32_t height, uint32_t bytesPerPixel)
 {
 	int status = -1;
 	int png_status;
@@ -18,7 +18,7 @@ int gfwx_PngWriteFile(const char* filename, uint8_t* data, uint32_t width, uint3
 
 	memset(&image, 0, sizeof(png_image));
 	image.version = PNG_IMAGE_VERSION;
-	image.format = PNG_FORMAT_BGR;
+	image.format = (bytesPerPixel == 4) ? PNG_FORMAT_BGRA : PNG_FORMAT_BGR;
 	image.width = width;
 	image.height = height;
 
@@ -37,7 +37,7 @@ exit:
 	return status;
 }
 
-int gfwx_PngReadFile(const char* filename, uint8_t** pData, uint32_t* pWidth, uint32_t* pHeight)
+int gfwx_PngReadFile(const char* filename, uint8_t** pData, uint32_t* pWidth, uint32_t* pHeight, uint32_t bytesPerPixel)
 {
 	int status = -1;
 	int png_status;
@@ -53,7 +53,7 @@ int gfwx_PngReadFile(const char* filename, uint8_t** pData, uint32_t* pWidth, ui
 	if (!png_status)
 		goto exit;
 
-	image.format = PNG_FORMAT_BGR;
+	image.format = (bytesPerPixel == 4) ? PNG_FORMAT_BGRA : PNG_FORMAT_BGR;
 	row_stride = PNG_IMAGE_ROW_STRIDE(image);
 
 	buffer = malloc(PNG_IMAGE_SIZE(image));
