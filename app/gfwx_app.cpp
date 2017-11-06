@@ -19,8 +19,6 @@ int gfwx_encode_file(const char* input, const char* output)
 	uint32_t gfwxSize;
 	uint8_t* inData;
 	uint32_t inSize;
-	uint8_t* outData;
-	uint32_t outSize;
 	uint32_t imgWidth;
 	uint32_t imgHeight;
 	double ms, sec;
@@ -69,8 +67,6 @@ int gfwx_decode_file(const char* input, const char* output)
 {
 	uint8_t* gfwxData;
 	uint32_t gfwxSize;
-	uint8_t* inData;
-	uint32_t inSize;
 	uint8_t* outData;
 	uint32_t outSize;
 	uint32_t imgWidth;

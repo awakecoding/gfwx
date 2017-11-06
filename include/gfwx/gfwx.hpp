@@ -130,9 +130,7 @@ namespace GFWX {
 		size_t bufferSize() const {
 			size_t const part1 = static_cast<size_t>(sizex) * sizey;
 			size_t const part2 = static_cast<size_t>(channels) * layers * ((bitDepth + 7) / 8);
-			return std::log(part1) + std::log(part2) > std::log(std::numeric_limits<size_t>::max() - 1) ? 0
-														    :
-			       part1 * part2;
+			return std::log(part1) + std::log(part2) > std::log(std::numeric_limits<size_t>::max() - 1) ? 0 : part1 * part2;
 		}
 	};
 
@@ -250,10 +248,8 @@ namespace GFWX {
 	template<int pot>
 	uint32_t unsignedDecode(Bits &stream) {
 		uint32_t x = stream.getZeros(12);
-		int const p = pot < 24 ? pot
-				       : 24;  // actual pot. The max 108 below is to prevent unlimited recursion in malformed files, yet admit 2^32 - 1.
-		return (pot < 108 && x == 12) ? (12 << p) + unsignedDecode<pot < 108 ? pot + 4 : 108>(stream) : p ? (x
-			<< p) + stream.getBits(p) : x;
+		int const p = pot < 24 ? pot : 24;  // actual pot. The max 108 below is to prevent unlimited recursion in malformed files, yet admit 2^32 - 1.
+		return (pot < 108 && x == 12) ? (12 << p) + unsignedDecode<pot < 108 ? pot + 4 : 108>(stream) : p ? (x << p) + stream.getBits(p) : x;
 	}
 
 	template<int pot>
@@ -306,19 +302,25 @@ namespace GFWX {
 				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = 0; y < sizey; y += step) {
 					int x;
-					T *base = &image[y0 + y][x0], *base1 = base - step, *base2 =
-						base + step, *base3 = base + step * 3;
+					T *base = &image[y0 + y][x0];
+					T *base1 = base - step;
+					T *base2 = base + step;
+					T *base3 = base + step * 3;
 					if (filter == FilterCubic) {
-						T c0 = *base, c1 = *base, c2 =
-							step * 2 < sizex ? base[step * 2] : *base, c3;
+						T c0 = *base;
+						T c1 = *base;
+						T c2 = (step * 2 < sizex) ? base[step * 2] : *base;
+						T c3;
 						for (x = step; x < sizex - step * 3; x += step * 2, c0 = c1, c1 = c2, c2 = c3) {
 							base[x] -= cubic(c0, c1, c2, c3 = base3[x]);
 						}
 						for (; x < sizex; x += step * 2, c0 = c1, c1 = c2) {
 							base[x] -= cubic(c0, c1, c2, c2);
 						}
-						T g0 = base[step], g1 = base[step], g2 =
-							step * 3 < sizex ? base[step * 3] : base[step], g3;
+						T g0 = base[step];
+						T g1 = base[step];
+						T g2 = step * 3 < sizex ? base[step * 3] : base[step];
+						T g3;
 						for (x = step * 2; x < sizex - step * 3; x += step * 2, g0 = g1, g1 = g2, g2 = g3) {
 							base[x] += cubic(g0, g1, g2, g3 = base3[x]) / 2;
 						}
@@ -346,13 +348,11 @@ namespace GFWX {
 				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = step; y < sizey; y += step * 2) {
 					T *const base = &image[y0 + y][x0];
-					T const *const c1base = &image[y0 + y - step][x0], *const c2base =
-						y + step < sizey ? &image[y0 + y + step][x0] : c1base;
+					T const *const c1base = &image[y0 + y - step][x0];
+					T const *const c2base = (y + step < sizey) ? &image[y0 + y + step][x0] : c1base;
 					if (filter == FilterCubic) {
-						T const *const c0base =
-							y - step * 3 >= 0 ? &image[y0 + y - step * 3][x0] : c1base;
-						T const *const c3base =
-							y + step * 3 < sizey ? &image[y0 + y + step * 3][x0] : c2base;
+						T const *const c0base = (y - step * 3 >= 0) ? &image[y0 + y - step * 3][x0] : c1base;
+						T const *const c3base = (y + step * 3 < sizey) ? &image[y0 + y + step * 3][x0] : c2base;
 						for (int x = 0; x < sizex; x += step) {
 							base[x] -= cubic(c0base[x], c1base[x], c2base[x], c3base[x]);
 						}
@@ -365,11 +365,11 @@ namespace GFWX {
 				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = step * 2; y < sizey; y += step * 2) {
 					T *const base = &image[y0 + y][x0];
-					T const *const g1base = &image[y0 + y - step][x0], *const g2base =
-						y + step < sizey ? &image[y0 + y + step][x0] : g1base;
+					T const *const g1base = &image[y0 + y - step][x0];
+					T const *const g2base = (y + step < sizey) ? &image[y0 + y + step][x0] : g1base;
 					if (filter == FilterCubic) {
-						T const *const g0base = y - step * 3 >= 0 ? &image[y0 + y - step * 3][x0] : g1base;
-						T const *const g3base = y + step * 3 < sizey ? &image[y0 + y + step * 3][x0] : g2base;
+						T const *const g0base = (y - step * 3 >= 0) ? &image[y0 + y - step * 3][x0] : g1base;
+						T const *const g3base = (y + step * 3 < sizey) ? &image[y0 + y + step * 3][x0] : g2base;
 						for (int x = 0; x < sizex; x += step) {
 							base[x] += cubic(g0base[x], g1base[x], g2base[x], g3base[x]) / 2;
 						}
@@ -389,7 +389,7 @@ namespace GFWX {
 		int const sizex = x1 - x0;
 		int const sizey = y1 - y0;
 		int step = minStep;
-		while (step * 2 < sizex || step * 2 < sizey) {
+		while ((step * 2 < sizex) || (step * 2 < sizey)) {
 			step *= 2;
 		}
 		while (step >= minStep) {
@@ -398,11 +398,11 @@ namespace GFWX {
 				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = step * 2; y < sizey; y += step * 2) {
 					T *const base = &image[y0 + y][x0];
-					T const *const g1base = &image[y0 + y - step][x0], *const g2base =
-						y + step < sizey ? &image[y0 + y + step][x0] : g1base;
+					T const *const g1base = &image[y0 + y - step][x0];
+					T const *const g2base = (y + step < sizey) ? &image[y0 + y + step][x0] : g1base;
 					if (filter == FilterCubic) {
-						T const *const g0base = y - step * 3 >= 0 ? &image[y0 + y - step * 3][x0] : g1base;
-						T const *const g3base = y + step * 3 < sizey ? &image[y0 + y + step * 3][x0] : g2base;
+						T const *const g0base = (y - step * 3 >= 0) ? &image[y0 + y - step * 3][x0] : g1base;
+						T const *const g3base = (y + step * 3 < sizey) ? &image[y0 + y + step * 3][x0] : g2base;
 						for (int x = 0; x < sizex; x += step) {
 							base[x] -= cubic(g0base[x], g1base[x], g2base[x], g3base[x]) / 2;
 						}
@@ -415,11 +415,11 @@ namespace GFWX {
 				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = step; y < sizey; y += step * 2) {
 					T *const base = &image[y0 + y][x0];
-					T const *const c1base = &image[y0 + y - step][x0], *const c2base =
-						y + step < sizey ? &image[y0 + y + step][x0] : c1base;
+					T const *const c1base = &image[y0 + y - step][x0];
+					T const *const c2base = (y + step < sizey) ? &image[y0 + y + step][x0] : c1base;
 					if (filter == FilterCubic) {
-						T const *const c0base = y - step * 3 >= 0 ? &image[y0 + y - step * 3][x0] : c1base;
-						T const *const c3base = y + step * 3 < sizey ? &image[y0 + y + step * 3][x0] : c2base;
+						T const *const c0base = (y - step * 3 >= 0) ? &image[y0 + y - step * 3][x0] : c1base;
+						T const *const c3base = (y + step * 3 < sizey) ? &image[y0 + y + step * 3][x0] : c2base;
 						for (int x = 0; x < sizex; x += step) {
 							base[x] += cubic(c0base[x], c1base[x], c2base[x], c3base[x]);
 						}
@@ -435,17 +435,25 @@ namespace GFWX {
 				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = 0; y < sizey; y += step) {
 					int x;
-					T *base = &image[y0 + y][x0], *base1 = base - step, *base2 =
-						base + step, *base3 = base + step * 3;
+					T *base = &image[y0 + y][x0];
+					T *base1 = base - step;
+					T *base2 = base + step;
+					T *base3 = base + step * 3;
 					if (filter == FilterCubic) {
-						T g0 = base[step], g1 = base[step], g2 = step * 3 < sizex ? base[step * 3] : base[step], g3;
+						T g0 = base[step];
+						T g1 = base[step];
+						T g2 = (step * 3 < sizex) ? base[step * 3] : base[step];
+						T g3;
 						for (x = step * 2; x < sizex - step * 3; x += step * 2, g0 = g1, g1 = g2, g2 = g3) {
 							base[x] -= cubic(g0, g1, g2, g3 = base3[x]) / 2;
 						}
 						for (; x < sizex; x += step * 2, g0 = g1, g1 = g2) {
 							base[x] -= cubic(g0, g1, g2, g2) / 2;
 						}
-						T c0 = *base, c1 = *base, c2 = step * 2 < sizex ? base[step * 2] : *base, c3;
+						T c0 = *base;
+						T c1 = *base;
+						T c2 = (step * 2 < sizex) ? base[step * 2] : *base;
+						T c3;
 						for (x = step; x < sizex - step * 3; x += step * 2, c0 = c1, c1 = c2, c2 = c3) {
 							base[x] += cubic(c0, c1, c2, c3 = base3[x]);
 						}
@@ -478,14 +486,19 @@ namespace GFWX {
 		int const sizex = x1 - x0;
 		int const sizey = y1 - y0;
 		int skip = step;
+
 		while (skip < sizex && skip < sizey) {
 			int const q = std::max(std::max(1, minQ), quality);
-			if (q >= maxQ) { break; } OMP_PARALLEL_FOR(ThreadIterations)
+
+			if (q >= maxQ) {
+				break;
+			}
+
+			OMP_PARALLEL_FOR(ThreadIterations)
 			for (int y = 0; y < sizey; y += skip) {
 				T *base = &image[y0 + y][x0];
 				int const xStep = (y & skip) ? skip : skip * 2;
-				for (int x = xStep - skip;
-					x < sizex; x += xStep) {        // [NOTE] arranged so that (x | y) & skip == 1
+				for (int x = xStep - skip; x < sizex; x += xStep) {        // [NOTE] arranged so that (x | y) & skip == 1
 					base[x] = dequantize ? (aux(base[x]) * maxQ + (base[x] < 0 ? -maxQ / 2 : base[x] > 0 ? maxQ / 2 : 0))
 							       / q : aux(base[x]) * q / maxQ;
 				}
@@ -548,15 +561,15 @@ namespace GFWX {
 
 	template<typename T>
 	void
-	encode(Image<T> &image, Bits &stream, int x0, int y0, int x1, int y1, int step, int scheme, int q, bool hasDC,
-	       bool isChroma) {
+	encode(Image<T> &image, Bits &stream, int x0, int y0, int x1, int y1, int step, int scheme, int q, bool hasDC, bool isChroma) {
 		int const sizex = x1 - x0;
 		int const sizey = y1 - y0;
 		if (hasDC && sizex > 0 && sizey > 0) {
 			signedCode<4>(image[y0][x0], stream);
 		}
 		std::pair<uint32_t, uint32_t> context(0, 0);
-		int run = 0, runCoder = (scheme == EncoderTurbo ? (!q || (step < 2048 && q * step < 2048)) ? 1 : 0 : 0);  // avoid overflow checking q * step < 2048
+		int run = 0;
+		int runCoder = ((scheme == EncoderTurbo) ? (!q || (step < 2048 && q * step < 2048)) ? 1 : 0 : 0);  // avoid overflow checking q * step < 2048
 		for (int y = 0; y < sizey; y += step) {
 			T *base = &image[y0 + y][x0];
 			int const xStep = (y & step) ? step : step * 2;
@@ -669,16 +682,16 @@ namespace GFWX {
 	decode(Image<T> &image, Bits &stream, int x0, int y0, int x1, int y1, int step, int scheme, int q, bool hasDC, bool isChroma) {
 		int const sizex = x1 - x0;
 		int const sizey = y1 - y0;
-		if (hasDC && sizex > 0 && sizey > 0) {
+		if (hasDC && (sizex > 0) && (sizey > 0)) {
 			image[y0][x0] = signedDecode<4>(stream);
 		}
 		std::pair<uint32_t, uint32_t> context(0, 0);
-		int run = -1, runCoder = (scheme == EncoderTurbo ? (!q || (step < 2048 && q * step < 2048)) ? 1 : 0 : 0);  // avoid overflow checking q * step < 2048
+		int run = -1;
+		int runCoder = ((scheme == EncoderTurbo) ? (!q || (step < 2048 && q * step < 2048)) ? 1 : 0 : 0);  // avoid overflow checking q * step < 2048
 		for (int y = 0; y < sizey; y += step) {
 			T *base = &image[y0 + y][x0];
 			int const xStep = (y & step) ? step : step * 2;
-			for (int x = xStep - step;
-				x < sizex; x += xStep)        // [NOTE] arranged so that (x | y) & step == 1
+			for (int x = xStep - step; x < sizex; x += xStep)        // [NOTE] arranged so that (x | y) & step == 1
 			{
 				T s = 0;
 				if (runCoder && run == -1) {
@@ -759,7 +772,7 @@ namespace GFWX {
 														    : 0;
 						}
 					}
-					if (run == 0 && s <= 0) {
+					if ((run == 0) && (s <= 0)) {
 						--s;
 					}        // s can't be zero, so shift negatives by 1
 					run = -1;
@@ -893,7 +906,7 @@ namespace GFWX {
 		{
 			Image<aux> auxImage(&auxData[c * bufferSize], header.sizex, header.sizey);
 			lift(auxImage, 0, 0, header.sizex, header.sizey, 1, header.filter);
-			if (header.intent >= IntentBayerRGGB && header.intent <= IntentBayerGeneric) {
+			if ((header.intent >= IntentBayerRGGB) && (header.intent <= IntentBayerGeneric)) {
 				for (int ox = 0; ox <= 1; ++ox) {
 					for (int oy = 1 - ox; oy <= 1; ++oy) {
 						lift(auxImage, ox, oy, header.sizex, header.sizey, 2, header.filter);
@@ -913,7 +926,7 @@ namespace GFWX {
 			}
 		}
 		int step = 1;
-		while (step * 2 < header.sizex || step * 2 < header.sizey) {
+		while ((step * 2 < header.sizex) || (step * 2 < header.sizey)) {
 			step *= 2;
 		}
 		for (bool hasDC = true; step >= 1; hasDC = false) {
@@ -926,19 +939,17 @@ namespace GFWX {
 			if (blockBegin >= stream.bufferEnd) {
 				return ErrorOverflow;
 			}
-			for (int block = 0; block <
-					    blockCount; ++block) {        // partition buffer into temporary regions for each block
-				streamBlock[block].buffer =
-					blockBegin + (stream.bufferEnd - blockBegin) * block / blockCount;
+			for (int block = 0; block < blockCount; ++block) {        // partition buffer into temporary regions for each block
+				streamBlock[block].buffer = blockBegin + (stream.bufferEnd - blockBegin) * block / blockCount;
 			}
 			for (int block = 0; block < blockCount; ++block) {
-				streamBlock[block].bufferEnd =
-					block + 1 < blockCount ? streamBlock[block + 1].buffer : stream.bufferEnd;
+				streamBlock[block].bufferEnd = block + 1 < blockCount ? streamBlock[block + 1].buffer : stream.bufferEnd;
 			}
 			OMP_PARALLEL_FOR(4)        // [MAGIC] for some reason, 4 is by far the best option here
 			for (int block = 0; block < blockCount; ++block) {
-				int const bx = block % blockCountX, by = (block / blockCountX) % blockCountY, c =
-					block / (blockCountX * blockCountY);
+				int const bx = block % blockCountX;
+				int by = (block / blockCountX) % blockCountY;
+				int c = block / (blockCountX * blockCountY);
 				Image<aux> auxImage(&auxData[c * bufferSize], header.sizex, header.sizey);
 				if (header.intent < IntentBayerRGGB || header.intent > IntentBayerGeneric) {
 					encode(auxImage, streamBlock[block], bx * bs, by * bs,
@@ -966,13 +977,10 @@ namespace GFWX {
 				}
 			}
 			for (int block = 0; block < blockCount; ++block) {        // encode block lengths [NOTE] this 32-bit encoding limits the file size to < 16 GB
-				*(stream.buffer++) = uint32_t(streamBlock[block].buffer -
-							      (block ? streamBlock[block - 1].bufferEnd : blockBegin));
+				*(stream.buffer++) = uint32_t(streamBlock[block].buffer - (block ? streamBlock[block - 1].bufferEnd : blockBegin));
 			}
 			for (int block = 0; block < blockCount; ++block) {        // pack the streamBlock data tightly, by word [NOTE] first block is already packed
-				stream.buffer = block ? std::copy(streamBlock[block - 1].bufferEnd,
-								  streamBlock[block].buffer, stream.buffer)
-						      : streamBlock[0].buffer;
+				stream.buffer = block ? std::copy(streamBlock[block - 1].bufferEnd, streamBlock[block].buffer, stream.buffer) : streamBlock[0].buffer;
 			}
 			step /= 2;
 		}
@@ -1006,8 +1014,10 @@ namespace GFWX {
 		header.quantization = stream.getBits(8);
 		header.encoder = stream.getBits(8);
 		header.intent = stream.getBits(8);
-		if (header.sizex<0 || header.sizex>(1 << 30) || header.sizey<0 || header.sizey>(1 << 30) ||
-		    header.bufferSize() == 0) {
+
+		if ((header.sizex < 0) || (header.sizex > (1 << 30)) ||
+			(header.sizey < 0) || (header.sizey > (1 << 30)) ||
+			(header.bufferSize() == 0)) {
 			return ErrorMalformed;
 		}  // [NOTE] current implementation can't go over 2^30
 		if (!imageData) {                // just header
@@ -1059,7 +1069,7 @@ namespace GFWX {
 		int const boost = header.quality == QualityMax ? 1 : 8;        // [NOTE] due to Cubic lifting max multiplier of 20, boost * 20 must be less than 256
 		bool isTruncated = false;
 		int step = 1;
-		while (step * 2 < header.sizex || step * 2 < header.sizey) {
+		while ((step * 2 < header.sizex) || (step * 2 < header.sizey)) {
 			step *= 2;
 		}
 		for (bool hasDC = true; (step >> downsampling) >= 1; hasDC = false)        // decode just enough coefficients for downsampled image
@@ -1069,13 +1079,11 @@ namespace GFWX {
 			int const blockCountY = int((header.sizey + bs - 1) / bs);
 			int const blockCount = blockCountX * blockCountY * header.layers * header.channels;
 			isTruncated = true;
-			if (stream.buffer + 1 + blockCount >
-			    stream.bufferEnd) {        // check for enough buffer to read block sizes
+			if ((stream.buffer + 1 + blockCount) > stream.bufferEnd) {        // check for enough buffer to read block sizes
 				break;
 			}
 			std::vector<Bits> streamBlock(blockCount, Bits(0, 0));
-			for (int block = 0;
-				block < blockCount; ++block) {        // first, read sizes into bufferEnd pointers
+			for (int block = 0; block < blockCount; ++block) {        // first, read sizes into bufferEnd pointers
 				streamBlock[block].bufferEnd = static_cast<uint32_t *>(0) + *(stream.buffer++);
 			}
 			for (int block = 0; block < blockCount; ++block) {        // then convert sizes to true buffer pointers
@@ -1084,8 +1092,7 @@ namespace GFWX {
 					+ (streamBlock[block].bufferEnd - static_cast<uint32_t *>(0));
 			}
 			stream.buffer = streamBlock[blockCount - 1].bufferEnd;
-			nextPointOfInterest = reinterpret_cast<uint8_t *>(stream.buffer +
-									  ((step >> downsampling) > 1 ? blockCount * 4 : 0)) - data;
+			nextPointOfInterest = reinterpret_cast<uint8_t *>(stream.buffer + ((step >> downsampling) > 1 ? blockCount * 4 : 0)) - data;
 			if (stream.buffer <= stream.bufferEnd) {
 				isTruncated = false;
 			}
@@ -1094,9 +1101,9 @@ namespace GFWX {
 			OMP_PARALLEL_FOR(4)        // [MAGIC] for some reason, 4 is by far the best option here
 			for (int block = 0; block < blockCount; ++block) {
 				if (!test && streamBlock[block].bufferEnd <= stream.bufferEnd) {
-					int const bx = block % blockCountX, by =
-						(block / blockCountX) % blockCountY, c =
-						block / (blockCountX * blockCountY);
+					int const bx = block % blockCountX;
+					int by = (block / blockCountX) % blockCountY;
+					int c = block / (blockCountX * blockCountY);
 					Image<aux> auxImage(&auxData[c * bufferSize], sizexDown, sizeyDown);
 					if (header.intent < IntentBayerRGGB || header.intent > IntentBayerGeneric) {
 						decode(auxImage, streamBlock[block], int(bx * bsDown), int(by * bsDown),
@@ -1133,7 +1140,7 @@ namespace GFWX {
 		for (int c = 0; c < header.layers * header.channels; ++c)        // dequantize and unlift the channels
 		{
 			Image<aux> auxImage(&auxData[c * bufferSize], sizexDown, sizeyDown);
-			if (header.intent >= IntentBayerRGGB && header.intent <= IntentBayerGeneric) {
+			if ((header.intent >= IntentBayerRGGB) && (header.intent <= IntentBayerGeneric)) {
 				for (int ox = 0; ox <= 1; ++ox) {
 					for (int oy = 0; oy <= 1; ++oy) {
 						quantize<aux, true>(auxImage, ox, oy, sizexDown, sizeyDown, 2,
@@ -1154,8 +1161,7 @@ namespace GFWX {
 			}
 			unlift(auxImage, 0, 0, sizexDown, sizeyDown, 1, header.filter);
 		}
-		for (int s = (int) transformSteps.size() - 1;
-			s >= 0; --s)        // run color transform program in reverse
+		for (int s = (int) transformSteps.size() - 1; s >= 0; --s)        // run color transform program in reverse
 		{
 			int const *pc = &transformProgram[transformSteps[s]];
 			int const c = *(pc++);
@@ -1196,8 +1202,7 @@ namespace GFWX {
 				Image<aux> auxImage(&auxData[c * bufferSize], sizexDown, sizeyDown);
 				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = 1; y < sizeyDown - 1; ++y) {
-					for (int x = 1 + (y + (header.intent == IntentBayerGBRG ||
-							       header.intent == IntentBayerGRBG ? 1 : 0)) % 2;
+					for (int x = 1 + (y + (header.intent == IntentBayerGBRG || header.intent == IntentBayerGRBG ? 1 : 0)) % 2;
 						x < sizexDown - 1; x += 2) {
 						aux s = auxImage[y][x];
 						aux sum = s * 4;
