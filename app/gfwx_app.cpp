@@ -4,11 +4,6 @@
 #pragma warning(disable: 4577)
 #endif
 
-#ifdef WITH_OPENCV
-#include "opencv2/highgui/highgui.hpp"
-#include "opencv2/imgproc/imgproc.hpp"
-#endif
-
 #include "gfwx_img.h"
 #include "gfwx_file.h"
 #include "gfwx_time.h"
@@ -21,6 +16,8 @@ int main(int argc, const char** argv)
 {
 	uint8_t* gfwxData;
 	uint32_t gfwxSize;
+	uint8_t* inData;
+	uint32_t inSize;
 	uint8_t* outData;
 	uint32_t outSize;
 	uint32_t imgWidth;
@@ -44,7 +41,6 @@ int main(int argc, const char** argv)
 	gfwx_file = argv[2];
 	output_img = argv[3];
 
-	// set up parameters for lossless GFWX
 	int layers = 1;                               // just one image layer
 	int channels = 3;                             // 3 interleaved channels
 	int bitDepth = GFWX::BitDepthAuto;            // BitDepthAuto selects 8 or 16 based on type
@@ -57,10 +53,7 @@ int main(int argc, const char** argv)
 	int intent = GFWX::IntentBGR;                 // opencv uses BGR instead of RGB
 	int transform[] = GFWX_TRANSFORM_A710_BGR;    // handy predefined A710 transform (optional)
 
-	cv::Mat image = cv::imread(input_img, cv::IMREAD_COLOR);
-
-	imgWidth = (uint32_t) image.size().width;
-	imgHeight = (uint32_t) image.size().height;
+	gfwx_PngReadFile(input_img, &inData, &imgWidth, &imgHeight);
 
 	GFWX::Header header(imgWidth, imgHeight, layers, channels, bitDepth, quality,
 		chromaScale, blockSize, filter, quantization, encoder, intent);
@@ -70,7 +63,7 @@ int main(int argc, const char** argv)
 
 	// compress the image into the byte buffer (the last two zeros are for optional metadata and size)
 	timer1 = gfwx_GetTime();
-	gfwxSize = (uint32_t) GFWX::compress(image.ptr(), header, gfwxData, gfwxSize, transform, 0, 0);
+	gfwxSize = (uint32_t) GFWX::compress(inData, header, gfwxData, gfwxSize, transform, 0, 0);
 	timer2 = gfwx_GetTime();
 
 	ms = (double) (timer2 - timer1);
@@ -88,7 +81,7 @@ int main(int argc, const char** argv)
 
 	// read the header first (with 0 pointer for image)
 	GFWX::Header header2;
-	ptrdiff_t result = GFWX::decompress((uchar*)0, header2, gfwxData, gfwxSize, 0, true);
+	ptrdiff_t result = GFWX::decompress((uint8_t*) 0, header2, gfwxData, gfwxSize, 0, true);
 
 	if (result != GFWX::ResultOk)
 		return (int) result;    // GFWX::ErrorMalformed for a bad file, or positive for truncated file
@@ -97,12 +90,15 @@ int main(int argc, const char** argv)
 	if (header2.bitDepth != 8 || header2.channels != 3 || header2.layers != 1 || header2.intent != GFWX::IntentBGR)
 		return -1;
 
-	// set up an opencv Mat to receive the image
-	cv::Mat img = cv::Mat_<cv::Vec3b>(header2.sizey, header2.sizex);
+	imgWidth = header2.sizex;
+	imgHeight = header2.sizey;
+
+	outSize = (imgWidth * 3) * imgHeight;
+	outData = (uint8_t*) malloc(outSize);
 
 	// decompress
 	timer1 = gfwx_GetTime();
-	result = GFWX::decompress(img.ptr(), header2, gfwxData, gfwxSize, 0, false);
+	result = GFWX::decompress(outData, header2, gfwxData, gfwxSize, 0, false);
 	timer2 = gfwx_GetTime();
 
 	ms = (double) (timer2 - timer1);
@@ -111,7 +107,7 @@ int main(int argc, const char** argv)
 	if (result != GFWX::ResultOk)
 		return (int) result;    // positive for truncated file, negative for error
 
-	cv::imwrite(output_img, img);
+	gfwx_PngWriteFile(output_img, outData, imgWidth, imgHeight);
 
 	printf(" %lf seconds to decompress %d Bytes\n", sec, (int) gfwx_FileSize(gfwx_file));
 
