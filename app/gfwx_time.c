@@ -3,12 +3,13 @@
 
 #ifndef _WIN32
 
+#include <time.h>
 #include <sys/time.h>
 
 uint64_t gfwx_GetTime(void)
 {
 	uint64_t ticks = 0;
-#if defined(__linux__)
+#if defined(__linux__) || defined(__APPLE__)
 	struct timespec ts;
 
 	if (!clock_gettime(CLOCK_MONOTONIC_RAW, &ts))
