@@ -4,9 +4,6 @@
 #pragma warning(disable: 4577)
 #endif
 
-#include <iomanip>
-#include <fstream>
-
 #ifdef WITH_OPENCV
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
@@ -20,15 +17,32 @@
 
 #include <gfwx/gfwx.hpp>
 
-int main(int argc, char const * argv[])
+int main(int argc, const char** argv)
 {
-	// load image at argv[1] using opencv
-	cv::Mat image = cv::imread(argv[1], cv::IMREAD_COLOR);
+	uint8_t* gfwxData;
+	uint32_t gfwxSize;
+	uint8_t* outData;
+	uint32_t outSize;
+	uint32_t imgWidth;
+	uint32_t imgHeight;
+	size_t fileSize;
+	uint8_t* fileData;
+	double ms, sec;
+	uint64_t timer1;
+	uint64_t timer2;
+	const char* gfwx_file;
+	const char* input_img;
+	const char* output_img;
 
-	uint64_t timer1, timer2;
-	struct tm y2k = {0};
-	double ms;
-	double sec;
+	if (argc < 4)
+	{
+		printf("gfwx input.png encoded.gfwx decoded.png");
+		return -1;
+	}
+
+	input_img = argv[1];
+	gfwx_file = argv[2];
+	output_img = argv[3];
 
 	// set up parameters for lossless GFWX
 	int layers = 1;                               // just one image layer
@@ -43,32 +57,38 @@ int main(int argc, char const * argv[])
 	int intent = GFWX::IntentBGR;                 // opencv uses BGR instead of RGB
 	int transform[] = GFWX_TRANSFORM_A710_BGR;    // handy predefined A710 transform (optional)
 
-	// put the image dimensions and parameters into a header
-	GFWX::Header header(image.size().width, image.size().height, layers, channels, bitDepth, quality,
+	cv::Mat image = cv::imread(input_img, cv::IMREAD_COLOR);
+
+	imgWidth = (uint32_t) image.size().width;
+	imgHeight = (uint32_t) image.size().height;
+
+	GFWX::Header header(imgWidth, imgHeight, layers, channels, bitDepth, quality,
 		chromaScale, blockSize, filter, quantization, encoder, intent);
 
-	// create a conservatively sized buffer to receive compressed bytes
-	// (I've never seen an image take more than twice the original size, even random noise)
-	std::vector<uchar> buffer(std::max((size_t)256, image.total() * image.elemSize() * 2));
+	gfwxSize = (imgWidth * imgHeight * 4);
+	gfwxData = (uint8_t*) malloc(gfwxSize);
 
 	// compress the image into the byte buffer (the last two zeros are for optional metadata and size)
 	timer1 = gfwx_GetTime();
-	ptrdiff_t size = GFWX::compress(image.ptr(), header, &buffer[0], buffer.size(), transform, 0, 0);
+	gfwxSize = (uint32_t) GFWX::compress(image.ptr(), header, gfwxData, gfwxSize, transform, 0, 0);
 	timer2 = gfwx_GetTime();
 
 	ms = (double) (timer2 - timer1);
 	sec = ms / 1000;
-	printf(" %lf seconds to compress %d Bytes\n", sec, (int) gfwx_FileSize(argv[1]));
 
-	std::ofstream(argv[2], std::ios::binary).write((char*)&buffer[0], size);
+	printf(" %lf seconds to compress %d Bytes\n", sec, (int) gfwx_FileSize(input_img));
 
-	std::ifstream in(argv[2], std::ios::binary | std::ios::ate);
-	std::vector<uchar> buffer2(in.tellg());
-	in.seekg(0, std::ios::beg).read((char*)&buffer2[0], buffer2.size());
+	gfwx_WriteFile(gfwx_file, gfwxData, gfwxSize);
+	free(gfwxData);
+
+	gfwx_ReadFile(gfwx_file, &fileData, &fileSize);
+
+	gfwxData = (uint8_t*) fileData;
+	gfwxSize = (uint32_t) fileSize;
 
 	// read the header first (with 0 pointer for image)
 	GFWX::Header header2;
-	ptrdiff_t result = GFWX::decompress((uchar*)0, header2, &buffer2[0], buffer2.size(), 0, true);
+	ptrdiff_t result = GFWX::decompress((uchar*)0, header2, gfwxData, gfwxSize, 0, true);
 
 	if (result != GFWX::ResultOk)
 		return (int) result;    // GFWX::ErrorMalformed for a bad file, or positive for truncated file
@@ -82,7 +102,7 @@ int main(int argc, char const * argv[])
 
 	// decompress
 	timer1 = gfwx_GetTime();
-	result = GFWX::decompress(img.ptr(), header2, &buffer2[0], buffer2.size(), 0, false);
+	result = GFWX::decompress(img.ptr(), header2, gfwxData, gfwxSize, 0, false);
 	timer2 = gfwx_GetTime();
 
 	ms = (double) (timer2 - timer1);
@@ -91,10 +111,9 @@ int main(int argc, char const * argv[])
 	if (result != GFWX::ResultOk)
 		return (int) result;    // positive for truncated file, negative for error
 
-	// write the result to a file at argv[3]
-	cv::imwrite(argv[3], img);
+	cv::imwrite(output_img, img);
 
-	printf(" %lf seconds to decompress %d Bytes\n", sec, (int) gfwx_FileSize(argv[2]));
+	printf(" %lf seconds to decompress %d Bytes\n", sec, (int) gfwx_FileSize(gfwx_file));
 
 	return 0;
 }
