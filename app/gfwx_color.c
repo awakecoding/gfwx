@@ -5,6 +5,8 @@
 	if (_val < _min) _val = _min; \
 	else if (_val > _max) _val = _max;
 
+/* YUV420 (JPEG) */
+
 void gfwx_YUV420ToRGB_8u_P3AC4R(const uint8_t* pSrc[3], int srcStep[3], uint8_t* pDst, int dstStep,
 	int width, int height)
 {
@@ -330,6 +332,8 @@ void gfwx_RGBToYUV420_8u_P3AC4R(const uint8_t* pSrc, int32_t srcStep, uint8_t* p
 	}
 }
 
+/* YCoCgR420 */
+
 void gfwx_YCoCgR420ToRGB_8u_P3AC4R(const uint8_t* pSrc[3], int srcStep[3], uint8_t* pDst, int dstStep,
 	int width, int height)
 {
@@ -567,5 +571,114 @@ void gfwx_RGBToYCoCgR420_8u_P3AC4R(const uint8_t* pSrc, int32_t srcStep, uint8_t
 		pY = pY + dstPad[0] + dstStep[0];
 		pCo = pCo + dstPad[1];
 		pCg = pCg + dstPad[2];
+	}
+}
+
+/* YCoCgR */
+
+void gfwx_YCoCgRToRGB_16s_P3AC4R(const int16_t* pSrc[3], int srcStep[3], uint8_t* pDst, int dstStep,
+	int width, int height)
+{
+	int x, y;
+	int dstPad;
+	int srcPad[3];
+	int R, G, B, t;
+	int Y, Co, Cg;
+	const int16_t* pY;
+	const int16_t* pCo;
+	const int16_t* pCg;
+	uint8_t* pRGB = pDst;
+
+	pY = pSrc[0];
+	pCo = pSrc[1];
+	pCg = pSrc[2];
+
+	srcPad[0] = (srcStep[0] - (2 * width));
+	srcPad[1] = (srcStep[1] - (2 * width));
+	srcPad[2] = (srcStep[2] - (2 * width));
+
+	dstPad = (dstStep - (width * 4));
+
+	for (y = 0; y < height; y++)
+	{
+		for (x = 0; x < width; x++)
+		{
+			Y = pY[0];
+			Co = pCo[0];
+			Cg = pCg[0];
+
+			pY++;
+			pCo++;
+			pCg++;
+
+			t = Y - (Cg >> 1);
+			G = Cg + t;
+			B = t - (Co >> 1);
+			R = B + Co;
+
+			pRGB[0] = (uint8_t) B;
+			pRGB[1] = (uint8_t) G;
+			pRGB[2] = (uint8_t) R;
+			pRGB[3] = 0xFF;
+			pRGB += 4;
+		}
+
+		pRGB = pRGB + dstPad;
+		pY = (int16_t*) (((uint8_t*) pY) + srcPad[0]);
+		pCo = (int16_t*) (((uint8_t*) pCo) + srcPad[1]);
+		pCg = (int16_t*) (((uint8_t*) pCg) + srcPad[2]);
+	}
+}
+
+void gfwx_RGBToYCoCgR_16s_P3AC4R(const uint8_t* pSrc, int32_t srcStep, int16_t* pDst[3], int32_t dstStep[3],
+	int width, int height)
+{
+	int x, y;
+	int srcPad;
+	int dstPad[3];
+	int16_t* pY;
+	int16_t* pCo;
+	int16_t* pCg;
+	int R, G, B, t;
+	int Y, Co, Cg;
+	const uint8_t* pRGB = pSrc;
+
+	pY = pDst[0];
+	pCo = pDst[1];
+	pCg = pDst[2];
+
+	srcPad = (srcStep - (width * 4));
+
+	dstPad[0] = (dstStep[0] - (width * 2));
+	dstPad[1] = (dstStep[1] - (width * 2));
+	dstPad[2] = (dstStep[2] - (width * 2));
+
+	for (y = 0; y < height; y++)
+	{
+		for (x = 0; x < width; x++)
+		{
+			B = pRGB[0];
+			G = pRGB[1];
+			R = pRGB[2];
+			pRGB += 4;
+
+			Co = R - B;
+			t = B + (Co >> 1);
+			Cg = G - t;
+			Y = t + (Cg >> 1);
+
+			pY[0] = (int16_t) Y;
+			pCo[0] = (int16_t) Co;
+			pCg[0] = (int16_t) Cg;
+
+			pY++;
+			pCo++;
+			pCg++;
+		}
+
+		pRGB = pRGB + srcPad;
+		pY = (int16_t*) (((uint8_t*) pY) + dstPad[0]);
+		pCo = (int16_t*) (((uint8_t*) pCo) + dstPad[1]);
+		pCg = (int16_t*) (((uint8_t*) pCg) + dstPad[2]);
 	}
 }
