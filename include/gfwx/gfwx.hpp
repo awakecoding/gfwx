@@ -141,7 +141,7 @@ namespace GFWX {
 		uint32_t* buffer;
 		uint32_t* bufferEnd;
 		uint32_t writeCache;
-		int indexBits;        // -1 indicates buffer overflow
+		int indexBits; // -1 indicates buffer overflow
 
 		Bits(uint32_t *buffer, uint32_t *bufferEnd) :
 			buffer(buffer), bufferEnd(bufferEnd), writeCache(0), indexBits(0) {
@@ -150,15 +150,15 @@ namespace GFWX {
 		uint32_t getBits(int bits) {
 			int newBits = indexBits + bits;
 			if (buffer == bufferEnd) {
-				return indexBits = -1;
-			}        // signify overflow
+				return indexBits = -1;  // signify overflow
+			}
 			uint32_t x = *buffer << indexBits;
 			if (newBits >= 32) {
 				++buffer;
 				if ((newBits -= 32) > 0) {
 					if (buffer == bufferEnd) {
-						return indexBits = -1;
-					}        // signify overflow
+						return indexBits = -1; // signify overflow
+					}
 					x |= *buffer >> (32 - indexBits);
 				}
 			}
@@ -169,7 +169,7 @@ namespace GFWX {
 		void putBits(uint32_t x, int bits) {
 			int newBits = indexBits + bits;
 			if (buffer == bufferEnd) {
-				newBits = -1;        // signify overflow
+				newBits = -1; // signify overflow
 			} else if (newBits < 32) {
 				(writeCache <<= bits) |= x;
 			} else if (bits == 32 && newBits == 32) {
@@ -186,8 +186,8 @@ namespace GFWX {
 		uint32_t getZeros(uint32_t maxZeros) {
 			int newBits = indexBits;
 			if (buffer == bufferEnd) {
-				return indexBits = -1;
-			}        // signify overflow
+				return indexBits = -1; // signify overflow
+			}
 			uint32_t b = *buffer;
 			uint32_t x = 0;
 			while (true) {
@@ -198,8 +198,8 @@ namespace GFWX {
 						return x;
 					}
 					if (buffer == bufferEnd) {
-						return indexBits = -1;
-					}        // signify overflow
+						return indexBits = -1; // signify overflow
+					}
 					b = *buffer;
 					newBits = 0;
 					continue;
@@ -212,12 +212,12 @@ namespace GFWX {
 			}
 		}
 
-		void flushWriteWord()        // [NOTE] does not clear overflow
+		void flushWriteWord() // [NOTE] does not clear overflow
 		{
 			putBits(0, (32 - indexBits) % 32);
 		}
 
-		void flushReadWord()        // [NOTE] does not clear overflow
+		void flushReadWord() // [NOTE] does not clear overflow
 		{
 			if (indexBits <= 0) {
 				return;
@@ -228,27 +228,28 @@ namespace GFWX {
 	};
 
 	template<int pot>
-	void unsignedCode(uint32_t x, Bits &stream)        // limited length power-of-two Golomb-Rice code
+	void unsignedCode(uint32_t x, Bits &stream) // limited length power-of-two Golomb-Rice code
 	{
 		uint32_t const y = x >> (pot);
 		if (y >= 12) {
-			stream.putBits(0, 12);        // escape to larger code
+			stream.putBits(0, 12); // escape to larger code
 			unsignedCode<pot < 20 ? pot + 4 : 24>(x - (12 << (pot)), stream);
 		} else {
+			// encode x / 2^pot in unary followed by x % 2^pot in binary
 			stream.putBits((1 << (pot)) | (x & ~(~0u << (pot))), y + 1 + pot);
-		}        // encode x / 2^pot in unary followed by x % 2^pot in binary
+		}
 	}
 
 	template<int pot>
 	uint32_t unsignedDecode(Bits &stream) {
 		uint32_t x = stream.getZeros(12);
-		int const p = pot < 24 ? pot : 24;  // actual pot. The max 108 below is to prevent unlimited recursion in malformed files, yet admit 2^32 - 1.
+		int const p = pot < 24 ? pot : 24; // actual pot. The max 108 below is to prevent unlimited recursion in malformed files, yet admit 2^32 - 1.
 		return (pot < 108 && x == 12) ? (12 << p) + unsignedDecode<pot < 108 ? pot + 4 : 108>(stream) : p ? (x << p) + stream.getBits(p) : x;
 	}
 
 	template<int pot>
 	void interleavedCode(int x, Bits &stream) {
-		unsignedCode<pot>(x <= 0 ? -2 * x : 2 * x - 1, stream);        // interleave positive and negative values
+		unsignedCode<pot>(x <= 0 ? -2 * x : 2 * x - 1, stream); // interleave positive and negative values
 	}
 
 	template<int pot>
@@ -290,8 +291,8 @@ namespace GFWX {
 	void lift(Image<T> &image, int x0, int y0, int x1, int y1, int step, int filter) {
 		int const sizex = x1 - x0;
 		int const sizey = y1 - y0;
-		while (step < sizex || step < sizey) {
-			if (step < sizex)        // horizontal lifting
+		while ((step < sizex) || (step < sizey)) {
+			if (step < sizex) // horizontal lifting
 			{
 				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = 0; y < sizey; y += step) {
@@ -337,7 +338,7 @@ namespace GFWX {
 					}
 				}
 			}
-			if (step < sizey)        // vertical lifting
+			if (step < sizey) // vertical lifting
 			{
 				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = step; y < sizey; y += step * 2) {
@@ -387,7 +388,7 @@ namespace GFWX {
 			step *= 2;
 		}
 		while (step >= minStep) {
-			if (step < sizey)        // vertical unlifting
+			if (step < sizey) // vertical unlifting
 			{
 				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = step * 2; y < sizey; y += step * 2) {
@@ -424,7 +425,7 @@ namespace GFWX {
 					}
 				}
 			}
-			if (step < sizex)        // horizontal unlifting
+			if (step < sizex) // horizontal unlifting
 			{
 				OMP_PARALLEL_FOR(ThreadIterations)
 				for (int y = 0; y < sizey; y += step) {
@@ -481,7 +482,7 @@ namespace GFWX {
 		int const sizey = y1 - y0;
 		int skip = step;
 
-		while (skip < sizex && skip < sizey) {
+		while ((skip < sizex) && (skip < sizey)) {
 			int const q = std::max(std::max(1, minQ), quality);
 
 			if (q >= maxQ) {
@@ -492,13 +493,21 @@ namespace GFWX {
 			for (int y = 0; y < sizey; y += skip) {
 				T *base = &image[y0 + y][x0];
 				int const xStep = (y & skip) ? skip : skip * 2;
-				for (int x = xStep - skip; x < sizex; x += xStep) {        // [NOTE] arranged so that (x | y) & skip == 1
-					base[x] = dequantize ? (aux(base[x]) * maxQ + (base[x] < 0 ? -maxQ / 2 : base[x] > 0 ? maxQ / 2 : 0))
-							       / q : aux(base[x]) * q / maxQ;
+				for (int x = xStep - skip; x < sizex; x += xStep) { // [NOTE] arranged so that (x | y) & skip == 1
+					if (dequantize) {
+						if (base[x] < 0)
+							base[x] = (aux(base[x]) * maxQ - (maxQ / 2)) / q;
+						else if (base[x] > 0)
+							base[x] = (aux(base[x]) * maxQ + (maxQ / 2)) / q;
+						else
+							base[x] = (aux(base[x]) * maxQ) / q;
+					} else {
+						base[x] = aux(base[x]) * q / maxQ;
+					}
 				}
 			}
 			skip *= 2;
-			quality = std::min(maxQ, quality * 2);        // [MAGIC] This approximates the JPEG 2000 baseline quantizer
+			quality = std::min(maxQ, quality * 2); // [MAGIC] This approximates the JPEG 2000 baseline quantizer
 		}
 	}
 
@@ -509,13 +518,12 @@ namespace GFWX {
 
 	inline void addContext(int x, int w, uint32_t &sum, uint32_t &sum2, uint32_t &count) {
 		sum += uint32_t(x = abs(x)) * w;
-		sum2 += square(std::min(uint32_t(x), 4096u)) * w;        // [MAGIC] avoid overflow in last line of getContext
+		sum2 += square(std::min(uint32_t(x), 4096u)) * w; // [MAGIC] avoid overflow in last line of getContext
 		count += w;
 	}
 
 	template<typename T>
-	std::pair<uint32_t, uint32_t>
-	getContext(Image<T> &image, int x0, int y0, int x1, int y1, int x, int y, int skip) {
+	std::pair<uint32_t, uint32_t> getContext(Image<T> &image, int x0, int y0, int x1, int y1, int x, int y, int skip) {
 		int px = x0 + (x & ~(skip * 2)) + (x & skip);
 		if (px >= x1) {
 			px -= skip * 2;
@@ -525,14 +533,14 @@ namespace GFWX {
 			py -= skip * 2;
 		}
 		uint32_t count = 0, sum = 0, sum2 = 0;
-		addContext(abs(image[py][px]), 2, sum, sum2, count);        // ancestor
+		addContext(abs(image[py][px]), 2, sum, sum2, count); // ancestor
 		if ((y & skip) && (x | skip) < x1 - x0) {
-			addContext(image[y0 + y - skip][x0 + (x | skip)], 2, sum, sum2, count);        // upper sibling
+			addContext(image[y0 + y - skip][x0 + (x | skip)], 2, sum, sum2, count); // upper sibling
 			if (x & skip) {
-				addContext(image[y0 + y][x0 + x - skip], 2, sum, sum2, count);
-			}        // left sibling
+				addContext(image[y0 + y][x0 + x - skip], 2, sum, sum2, count); // left sibling
+			}
 		}
-		if (y >= skip * 2 && x >= skip * 2)        // neighbors
+		if (y >= skip * 2 && x >= skip * 2) // neighbors
 		{
 			addContext(image[y0 + y - skip * 2][x0 + x], 4, sum, sum2, count);
 			addContext(image[y0 + y][x0 + x - skip * 2], 4, sum, sum2, count);
@@ -549,28 +557,32 @@ namespace GFWX {
 				}
 			}
 		}
-		return std::make_pair((sum * 16u + count / 2u) / count,
-				      (sum2 * 16u + count / 2u) / count);        // set sums relative to 16 count
+		return std::make_pair((sum * 16u + count / 2u) / count, (sum2 * 16u + count / 2u) / count); // set sums relative to 16 count
 	}
 
 	template<typename T>
-	void
-	encode(Image<T> &image, Bits &stream, int x0, int y0, int x1, int y1, int step, int scheme, int q, bool hasDC, bool isChroma) {
+	void encode(Image<T> &image, Bits &stream, int x0, int y0, int x1, int y1, int step, int scheme, int q, bool hasDC, bool isChroma) {
 		int const sizex = x1 - x0;
 		int const sizey = y1 - y0;
-		if (hasDC && sizex > 0 && sizey > 0) {
+		if (hasDC && (sizex > 0) && (sizey > 0)) {
 			signedCode<4>(image[y0][x0], stream);
 		}
 		std::pair<uint32_t, uint32_t> context(0, 0);
 		int run = 0;
-		int runCoder = ((scheme == EncoderTurbo) ? (!q || (step < 2048 && q * step < 2048)) ? 1 : 0 : 0);  // avoid overflow checking q * step < 2048
+		int runCoder = 0;
+
+		if (scheme == EncoderTurbo) {
+			if (!q || ((step < 2048) && (q * step < 2048)))
+				runCoder = 1; // avoid overflow checking q * step < 2048
+		}
+
 		for (int y = 0; y < sizey; y += step) {
 			T *base = &image[y0 + y][x0];
 			int const xStep = (y & step) ? step : step * 2;
-			for (int x = xStep - step; x < sizex; x += xStep)        // [NOTE] arranged so that (x | y) & step == 1
+			for (int x = xStep - step; x < sizex; x += xStep) // [NOTE] arranged so that (x | y) & step == 1
 			{
 				T s = base[x];
-				if (runCoder && !s) {        // run
+				if (runCoder && !s) { // run
 					++run;
 				} else {
 					if (scheme == EncoderTurbo) {
@@ -578,7 +590,7 @@ namespace GFWX {
 						{
 							unsignedCode<1>(run, stream);
 							run = 0;
-							interleavedCode<1>(s < 0 ? s + 1 : s, stream);        // s can't be zero, so shift negatives by 1
+							interleavedCode<1>((s < 0) ? (s + 1) : s, stream); // s can't be zero, so shift negatives by 1
 						} else {
 							interleavedCode<1>(s, stream);
 						}
@@ -586,14 +598,15 @@ namespace GFWX {
 					}
 					if (runCoder)        // break the run
 					{
-						runCoder == 1 ? unsignedCode<1>(run, stream) : runCoder == 2
-											       ? unsignedCode<2>(run,
-														 stream)
-											       : runCoder == 3
-												 ? unsignedCode<3>(run,
-														   stream)
-												 : unsignedCode<4>(run,
-														   stream);
+						if (runCoder == 1)
+							unsignedCode<1>(run, stream);
+						else if (runCoder == 2)
+							unsignedCode<2>(run, stream);
+						else if (runCoder == 3)
+							unsignedCode<3>(run, stream);
+						else
+							unsignedCode<4>(run, stream);
+
 						run = 0;
 						if (s < 0) {
 							++s;
@@ -635,45 +648,50 @@ namespace GFWX {
 									 ((context.second * 15u + 7u) >> 4) +
 									 square(std::min(t, 4096u)));
 						if (!s == !runCoder) {
-							runCoder = context.first < 1 ? 4 : context.first < 2 ? 3 :
-											   context.first < 4 ? 2 :
-											   context.first < 8 ? 1 : 0;
+							if (context.first < 1)
+								runCoder = 4;
+							else if (context.first < 2)
+								runCoder = 3;
+							else if (context.first < 4)
+								runCoder = 2;
+							else if (context.first < 8)
+								runCoder = 1;
+							else
+								runCoder = 0;
 						}
 					} else if (!s == !runCoder) {
-						runCoder =
-							q == 1024 ? context.first < 2u ? 1 : 0 : (context.first < 4u &&
-												  context.second < 2u)
-												 ? 4 : (context.first <
-													8u
-													&&
-													context.second <
-													4u) ? 3 : (2u *
-														   sumSq <
-														   3u *
-														   context.second +
-														   48u)
-														  ? 2
-														  : (2u *
-														     sumSq <
-														     5u *
-														     context.second +
-														     32u)
-														    ? 1
-														    : 0;
+						if (q == 1024) {
+							runCoder = (context.first < 2u) ? 1 : 0;
+						} else {
+							if (context.first < 4u && context.second < 2u)
+								runCoder = 4;
+							else if (context.first < 8u && context.second < 4u)
+								runCoder = 3;
+							else if (2u * sumSq < 3u * context.second + 48u)
+								runCoder = 2;
+							else if (2u * sumSq < 5u * context.second + 32u)
+								runCoder = 1;
+							else
+								runCoder = 0;
+						}
 					}
 				}
 			}
 		}
 		if (run) {        // flush run
-			runCoder == 1 ? unsignedCode<1>(run, stream) : runCoder == 2 ? unsignedCode<2>(run, stream)
-										     : runCoder == 3 ? unsignedCode<3>(
-					run, stream) : unsignedCode<4>(run, stream);
+			if (runCoder == 1)
+				unsignedCode<1>(run, stream);
+			else if (runCoder == 2)
+				unsignedCode<2>(run, stream);
+			else if (runCoder == 3)
+				unsignedCode<3>(run, stream);
+			else
+				unsignedCode<4>(run, stream);
 		}
 	}
 
 	template<typename T>
-	void
-	decode(Image<T> &image, Bits &stream, int x0, int y0, int x1, int y1, int step, int scheme, int q, bool hasDC, bool isChroma) {
+	void decode(Image<T> &image, Bits &stream, int x0, int y0, int x1, int y1, int step, int scheme, int q, bool hasDC, bool isChroma) {
 		int const sizex = x1 - x0;
 		int const sizey = y1 - y0;
 		if (hasDC && (sizex > 0) && (sizey > 0)) {
@@ -681,22 +699,31 @@ namespace GFWX {
 		}
 		std::pair<uint32_t, uint32_t> context(0, 0);
 		int run = -1;
-		int runCoder = ((scheme == EncoderTurbo) ? (!q || (step < 2048 && q * step < 2048)) ? 1 : 0 : 0);  // avoid overflow checking q * step < 2048
+		int runCoder = 0;
+
+		if (scheme == EncoderTurbo) {
+			if (!q || ((step < 2048) && (q * step < 2048)))
+				runCoder = 1; // avoid overflow checking q * step < 2048
+		}
+
 		for (int y = 0; y < sizey; y += step) {
 			T *base = &image[y0 + y][x0];
 			int const xStep = (y & step) ? step : step * 2;
-			for (int x = xStep - step; x < sizex; x += xStep)        // [NOTE] arranged so that (x | y) & step == 1
+			for (int x = xStep - step; x < sizex; x += xStep) // [NOTE] arranged so that (x | y) & step == 1
 			{
 				T s = 0;
 				if (runCoder && run == -1) {
-					run = runCoder == 1 ? unsignedDecode<1>(stream) : runCoder == 2
-											  ? unsignedDecode<2>(stream)
-											  : runCoder == 3
-											    ? unsignedDecode<3>(stream)
-											    : unsignedDecode<4>(stream);
+					if (runCoder == 1)
+						run = unsignedDecode<1>(stream);
+					else if (runCoder == 2)
+						run = unsignedDecode<2>(stream);
+					else if (runCoder == 3)
+						run = unsignedDecode<3>(stream);
+					else
+						run = unsignedDecode<4>(stream);
 				}
 				if (run > 0) {
-					--run;        // consume a zero
+					--run; // consume a zero
 				} else {
 					if (scheme == EncoderTurbo) {
 						s = interleavedDecode<1>(stream);
@@ -737,33 +764,32 @@ namespace GFWX {
 										 ((context.second * 15u + 7u) >> 4) +
 										 square(std::min(t, 4096u)));
 							if (!s == !runCoder) {
-								runCoder =
-									context.first < 1 ? 4 : context.first < 2 ? 3 :
-												context.first < 4 ? 2 :
-												context.first < 8 ? 1
-														  : 0;
+								if (context.first < 1)
+									runCoder = 4;
+								else if (context.first < 2)
+									runCoder = 3;
+								else if (context.first < 4)
+									runCoder = 2;
+								else if (context.first < 8)
+									runCoder = 1;
+								else
+									runCoder = 0;
 							}
 						} else if (!s == !runCoder) {
-							runCoder = q == 1024 ? context.first < 2u ? 1 : 0
-									     : (context.first < 4u &&
-										context.second < 2u) ? 4
-												     : (context.first <
-													8u
-													&&
-													context.second <
-													4u) ? 3 : (2u *
-														   sumSq <
-														   3u *
-														   context.second +
-														   48u)
-														  ? 2
-														  : (2u *
-														     sumSq <
-														     5u *
-														     context.second +
-														     32u)
-														    ? 1
-														    : 0;
+							if (q == 1024) {
+								runCoder = (context.first < 2u) ? 1 : 0;
+							} else {
+								if (context.first < 4u && context.second < 2u)
+									runCoder = 4;
+								else if (context.first < 8u && context.second < 4u)
+									runCoder = 3;
+								else if (2u * sumSq < 3u * context.second + 48u)
+									runCoder = 2;
+								else if (2u * sumSq < 5u * context.second + 32u)
+									runCoder = 1;
+								else
+									runCoder = 0;
+							}
 						}
 					}
 					if ((run == 0) && (s <= 0)) {
@@ -832,8 +858,8 @@ namespace GFWX {
 			   int const *channelTransform, uint8_t *metaData, size_t metaDataSize) {
 		typedef typename std::remove_reference<decltype(imageData[0])>::type base;
 		typedef typename std::conditional<sizeof(base) < 2, int16_t, int32_t>::type aux;
-		if (header.sizex > (1 << 30) ||
-		    header.sizey > (1 << 30)) {  // [NOTE] current implementation can't go over 2^30
+
+		if ((header.sizex > (1 << 30)) || (header.sizey > (1 << 30))) {  // [NOTE] current implementation can't go over 2^30
 			return ErrorMalformed;
 		}
 
@@ -863,7 +889,7 @@ namespace GFWX {
 		int const chromaQuality = std::max(1, (header.quality + header.chromaScale / 2) / header.chromaScale);
 		int const boost = header.quality == QualityMax ? 1 : 8; // [NOTE] due to Cubic lifting max multiplier of 20, boost * 20 must be less than 256
 
-		if (channelTransform)        // run color transform program (and also encode it to the file)
+		if (channelTransform) // run color transform program (and also encode it to the file)
 		{
 			int const *pc = channelTransform;
 			while (*pc >= 0) {
@@ -885,7 +911,7 @@ namespace GFWX {
 		}
 		stream.flushWriteWord();
 		for (int c = 0; c < header.layers * header.channels; ++c) {
-			if (isChroma[c] == -1)        // copy channels having no transform
+			if (isChroma[c] == -1) // copy channels having no transform
 			{
 				aux *destination = &auxData[c * bufferSize];
 				auto layer = imageData + ((c / header.channels) * bufferSize * header.channels + c % header.channels);
@@ -896,7 +922,7 @@ namespace GFWX {
 				isChroma[c] = 0;
 			}
 		}
-		for (int c = 0; c < header.layers * header.channels; ++c)        // lift and quantize the channels
+		for (int c = 0; c < header.layers * header.channels; ++c) // lift and quantize the channels
 		{
 			Image<aux> auxImage(&auxData[c * bufferSize], header.sizex, header.sizey);
 			lift(auxImage, 0, 0, header.sizex, header.sizey, 1, header.filter);
@@ -913,17 +939,17 @@ namespace GFWX {
 			int const blockCountY = (header.sizey + bs - 1) / bs;
 			int const blockCount = blockCountX * blockCountY * header.layers * header.channels;
 			std::vector<Bits> streamBlock(blockCount, Bits(0, 0));
-			uint32_t *blockBegin = stream.buffer + blockCount;        // leave space for block sizes
+			uint32_t *blockBegin = stream.buffer + blockCount; // leave space for block sizes
 			if (blockBegin >= stream.bufferEnd) {
 				return ErrorOverflow;
 			}
-			for (int block = 0; block < blockCount; ++block) {        // partition buffer into temporary regions for each block
+			for (int block = 0; block < blockCount; ++block) { // partition buffer into temporary regions for each block
 				streamBlock[block].buffer = blockBegin + (stream.bufferEnd - blockBegin) * block / blockCount;
 			}
 			for (int block = 0; block < blockCount; ++block) {
 				streamBlock[block].bufferEnd = block + 1 < blockCount ? streamBlock[block + 1].buffer : stream.bufferEnd;
 			}
-			OMP_PARALLEL_FOR(4)        // [MAGIC] for some reason, 4 is by far the best option here
+			OMP_PARALLEL_FOR(4) // [MAGIC] for some reason, 4 is by far the best option here
 			for (int block = 0; block < blockCount; ++block) {
 				int const bx = block % blockCountX;
 				int by = (block / blockCountX) % blockCountY;
@@ -938,25 +964,24 @@ namespace GFWX {
 
 				streamBlock[block].flushWriteWord();
 			}
-			for (int block = 0; block < blockCount; ++block) {        // check streamBlocks for overflow
+			for (int block = 0; block < blockCount; ++block) { // check streamBlocks for overflow
 				if (streamBlock[block].indexBits < 0) {
 					return ErrorOverflow;
 				}
 			}
-			for (int block = 0; block < blockCount; ++block) {        // encode block lengths [NOTE] this 32-bit encoding limits the file size to < 16 GB
+			for (int block = 0; block < blockCount; ++block) { // encode block lengths [NOTE] this 32-bit encoding limits the file size to < 16 GB
 				*(stream.buffer++) = uint32_t(streamBlock[block].buffer - (block ? streamBlock[block - 1].bufferEnd : blockBegin));
 			}
-			for (int block = 0; block < blockCount; ++block) {        // pack the streamBlock data tightly, by word [NOTE] first block is already packed
+			for (int block = 0; block < blockCount; ++block) { // pack the streamBlock data tightly, by word [NOTE] first block is already packed
 				stream.buffer = block ? std::copy(streamBlock[block - 1].bufferEnd, streamBlock[block].buffer, stream.buffer) : streamBlock[0].buffer;
 			}
 			step /= 2;
 		}
-		return reinterpret_cast<uint8_t *>(stream.buffer) - buffer;        // return size in bytes
+		return reinterpret_cast<uint8_t *>(stream.buffer) - buffer; // return size in bytes
 	}
 
 	template<typename I>
-	ptrdiff_t
-	decompress(I const &imageData, Header &header, uint8_t const *data, size_t size, int downsampling, bool test) {
+	ptrdiff_t decompress(I const &imageData, Header &header, uint8_t const *data, size_t size, int downsampling, bool test) {
 		typedef typename std::remove_reference<decltype(imageData[0])>::type base;
 		typedef typename std::conditional<sizeof(base) < 2, int16_t, int32_t>::type aux;
 		Bits stream(reinterpret_cast<uint32_t *>(const_cast<uint8_t *>(data)),
@@ -987,7 +1012,7 @@ namespace GFWX {
 			(header.bufferSize() == 0)) {
 			return ErrorMalformed;
 		}  // [NOTE] current implementation can't go over 2^30
-		if (!imageData) {                // just header
+		if (!imageData) { // just header
 			return ResultOk;
 		}
 		if (header.isSigned != (std::numeric_limits<base>::is_signed ? 1 : 0) ||
@@ -1003,10 +1028,10 @@ namespace GFWX {
 		int const bufferSize = sizexDown * sizeyDown;
 		std::vector<aux> auxData((size_t) header.layers * header.channels * bufferSize, 0);
 		std::vector<int> isChroma(header.layers * header.channels, 0), transformProgram, transformSteps;
-		size_t nextPointOfInterest = size + 1024;        // guess next point of interest [NOTE] may be larger than the complete file
-		while (true)        // decode color transform program (including isChroma flags)
+		size_t nextPointOfInterest = size + 1024; // guess next point of interest [NOTE] may be larger than the complete file
+		while (true) // decode color transform program (including isChroma flags)
 		{
-			transformProgram.push_back(signedDecode<2>(stream));        // channel
+			transformProgram.push_back(signedDecode<2>(stream)); // channel
 			if (transformProgram.back() >= static_cast<int>(isChroma.size())) {
 				return ErrorMalformed;
 			}
@@ -1015,45 +1040,45 @@ namespace GFWX {
 			}
 			transformSteps.push_back(int(transformProgram.size()) - 1);
 			while (true) {
-				if (stream.indexBits < 0) {        // test for truncation
+				if (stream.indexBits < 0) { // test for truncation
 					return nextPointOfInterest;
 				}        // need more data
-				transformProgram.push_back(signedDecode<2>(stream));        // other channel
+				transformProgram.push_back(signedDecode<2>(stream)); // other channel
 				if (transformProgram.back() >= static_cast<int>(isChroma.size())) {
 					return ErrorMalformed;
 				}
 				if (transformProgram.back() < 0) {
 					break;
 				}
-				transformProgram.push_back(signedDecode<2>(stream));        // factor
+				transformProgram.push_back(signedDecode<2>(stream)); // factor
 			}
-			transformProgram.push_back(signedDecode<2>(stream));        // denominator
-			transformProgram.push_back(signedDecode<2>(stream));        // chroma flag
+			transformProgram.push_back(signedDecode<2>(stream)); // denominator
+			transformProgram.push_back(signedDecode<2>(stream)); // chroma flag
 			isChroma[transformProgram[transformSteps.back()]] = transformProgram.back();
 		}
 		stream.flushReadWord();
 		int const chromaQuality = std::max(1, (header.quality + header.chromaScale / 2) / header.chromaScale);
-		int const boost = header.quality == QualityMax ? 1 : 8;        // [NOTE] due to Cubic lifting max multiplier of 20, boost * 20 must be less than 256
+		int const boost = header.quality == QualityMax ? 1 : 8; // [NOTE] due to Cubic lifting max multiplier of 20, boost * 20 must be less than 256
 		bool isTruncated = false;
 		int step = 1;
 		while ((step * 2 < header.sizex) || (step * 2 < header.sizey)) {
 			step *= 2;
 		}
-		for (bool hasDC = true; (step >> downsampling) >= 1; hasDC = false)        // decode just enough coefficients for downsampled image
+		for (bool hasDC = true; (step >> downsampling) >= 1; hasDC = false) // decode just enough coefficients for downsampled image
 		{
 			int64_t const bs = int64_t(step) << header.blockSize;
 			int const blockCountX = int((header.sizex + bs - 1) / bs);
 			int const blockCountY = int((header.sizey + bs - 1) / bs);
 			int const blockCount = blockCountX * blockCountY * header.layers * header.channels;
 			isTruncated = true;
-			if ((stream.buffer + 1 + blockCount) > stream.bufferEnd) {        // check for enough buffer to read block sizes
+			if ((stream.buffer + 1 + blockCount) > stream.bufferEnd) { // check for enough buffer to read block sizes
 				break;
 			}
 			std::vector<Bits> streamBlock(blockCount, Bits(0, 0));
-			for (int block = 0; block < blockCount; ++block) {        // first, read sizes into bufferEnd pointers
+			for (int block = 0; block < blockCount; ++block) { // first, read sizes into bufferEnd pointers
 				streamBlock[block].bufferEnd = static_cast<uint32_t *>(0) + *(stream.buffer++);
 			}
-			for (int block = 0; block < blockCount; ++block) {        // then convert sizes to true buffer pointers
+			for (int block = 0; block < blockCount; ++block) { // then convert sizes to true buffer pointers
 				streamBlock[block].bufferEnd =
 					(streamBlock[block].buffer = block ? streamBlock[block - 1].bufferEnd : stream.buffer)
 					+ (streamBlock[block].bufferEnd - static_cast<uint32_t *>(0));
@@ -1065,7 +1090,7 @@ namespace GFWX {
 			}
 			int const stepDown = step >> downsampling;
 			int64_t const bsDown = int64_t(stepDown) << header.blockSize;
-			OMP_PARALLEL_FOR(4)        // [MAGIC] for some reason, 4 is by far the best option here
+			OMP_PARALLEL_FOR(4) // [MAGIC] for some reason, 4 is by far the best option here
 			for (int block = 0; block < blockCount; ++block) {
 				if (!test && streamBlock[block].bufferEnd <= stream.bufferEnd) {
 					int const bx = block % blockCountX;
@@ -1080,7 +1105,7 @@ namespace GFWX {
 						hasDC && !bx && !by, isChroma[c] != 0);
 				}
 			}
-			for (int block = 0; block < blockCount; ++block) {        // check if any blocks ran out of buffer, which should not happen on valid files
+			for (int block = 0; block < blockCount; ++block) { // check if any blocks ran out of buffer, which should not happen on valid files
 				if (streamBlock[block].indexBits < 0) {
 					return ErrorMalformed;
 				}
@@ -1090,7 +1115,7 @@ namespace GFWX {
 		if (test) {
 			return isTruncated ? nextPointOfInterest : ResultOk;
 		}        // return next point of interest if the data was truncated prior to completing request
-		for (int c = 0; c < header.layers * header.channels; ++c)        // dequantize and unlift the channels
+		for (int c = 0; c < header.layers * header.channels; ++c) // dequantize and unlift the channels
 		{
 			Image<aux> auxImage(&auxData[c * bufferSize], sizexDown, sizeyDown);
 
@@ -1099,7 +1124,7 @@ namespace GFWX {
 
 			unlift(auxImage, 0, 0, sizexDown, sizeyDown, 1, header.filter);
 		}
-		for (int s = (int) transformSteps.size() - 1; s >= 0; --s)        // run color transform program in reverse
+		for (int s = (int) transformSteps.size() - 1; s >= 0; --s) // run color transform program in reverse
 		{
 			int const *pc = &transformProgram[transformSteps[s]];
 			int const c = *(pc++);
@@ -1111,7 +1136,7 @@ namespace GFWX {
 				destination[i] -= transformTemp[i];
 			}
 		}
-		for (int c = 0; c < header.layers * header.channels; ++c)        // copy the channels to the destination buffer
+		for (int c = 0; c < header.layers * header.channels; ++c) // copy the channels to the destination buffer
 		{
 			aux *destination = &auxData[c * bufferSize];
 			auto layer = imageData + ((c / header.channels) * bufferSize * header.channels + c % header.channels);
@@ -1133,6 +1158,7 @@ namespace GFWX {
 				}
 			}
 		}
-		return isTruncated ? nextPointOfInterest : ResultOk;        // return next point of interest if the data was truncated prior to completing request
+
+		return isTruncated ? nextPointOfInterest : ResultOk; // return next point of interest if the data was truncated prior to completing request
 	}
 }
