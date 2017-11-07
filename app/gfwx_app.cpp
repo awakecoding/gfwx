@@ -104,8 +104,8 @@ int gfwx_decode_file(const char* input, const char* output)
 	if (header.bitDepth != 8 || header.channels != 3 || header.layers != 1 || header.intent != GFWX::IntentBGR)
 		return -1;
 
-	imgWidth = header.sizex;
-	imgHeight = header.sizey;
+	imgWidth = header.width;
+	imgHeight = header.height;
 	imgRawSize = (imgWidth * 3) * imgHeight;
 
 	outSize = (imgWidth * bytesPerPixel) * imgHeight;

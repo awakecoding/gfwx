@@ -91,8 +91,8 @@ namespace GFWX {
 
 	struct Header
 	{
-		int sizex;
-		int sizey;
+		int width;
+		int height;
 		int layers;
 		int channels;
 		int bitDepth;
@@ -108,10 +108,10 @@ namespace GFWX {
 
 		Header() {}
 
-		Header(int sizex, int sizey, int layers, int channels, int bitDepth,
+		Header(int width, int height, int layers, int channels, int bitDepth,
 		       int quality, int chromaScale, int blockSize, int filter, int quantization, int encoder,
 		       int intent)
-			: sizex(sizex), sizey(sizey), layers(layers), channels(channels), bitDepth(bitDepth),
+			: width(width), height(height), layers(layers), channels(channels), bitDepth(bitDepth),
 			  quality(std::max(1, std::min(int(QualityMax), quality))),
 			  chromaScale(std::max(1, std::min(256, chromaScale))),
 			  blockSize(std::min(30, std::max(2, blockSize))), filter(std::min(255, filter)),
@@ -119,7 +119,7 @@ namespace GFWX {
 			  intent(std::min(255, intent)) {}
 
 		size_t bufferSize() const {
-			size_t const part1 = static_cast<size_t>(sizex) * sizey;
+			size_t const part1 = static_cast<size_t>(width) * height;
 			size_t const part2 = static_cast<size_t>(channels) * layers * ((bitDepth + 7) / 8);
 			return std::log(part1) + std::log(part2) > std::log(std::numeric_limits<size_t>::max() - 1) ? 0 : part1 * part2;
 		}
@@ -129,11 +129,11 @@ namespace GFWX {
 	struct Image
 	{
 		T *data;
-		int sizex, sizey;
+		int width;
+		int height;
 
-		Image(T *data, int sizex, int sizey) : data(data), sizex(sizex), sizey(sizey) {}
-
-		T *operator[](int y) { return data + static_cast<size_t>(y) * sizex; }
+		Image(T *data, int width, int height) : data(data), width(width), height(height) { }
+		T *operator[](int y) { return data + static_cast<size_t>(y) * width; }
 	};
 
 	struct Bits
@@ -288,7 +288,7 @@ namespace GFWX {
 	}
 
 	template<typename T>
-	void lift(Image<T> &image, int x0, int y0, int x1, int y1, int step, int filter) {
+	void lift_linear(Image<T> &image, int x0, int y0, int x1, int y1, int step) {
 		int const sizex = x1 - x0;
 		int const sizey = y1 - y0;
 		while ((step < sizex) || (step < sizey)) {
@@ -300,41 +300,18 @@ namespace GFWX {
 					T *base = &image[y0 + y][x0];
 					T *base1 = base - step;
 					T *base2 = base + step;
-					T *base3 = base + step * 3;
-					if (filter == FilterCubic) {
-						T c0 = *base;
-						T c1 = *base;
-						T c2 = (step * 2 < sizex) ? base[step * 2] : *base;
-						T c3;
-						for (x = step; x < sizex - step * 3; x += step * 2, c0 = c1, c1 = c2, c2 = c3) {
-							base[x] -= cubic(c0, c1, c2, c3 = base3[x]);
-						}
-						for (; x < sizex; x += step * 2, c0 = c1, c1 = c2) {
-							base[x] -= cubic(c0, c1, c2, c2);
-						}
-						T g0 = base[step];
-						T g1 = base[step];
-						T g2 = step * 3 < sizex ? base[step * 3] : base[step];
-						T g3;
-						for (x = step * 2; x < sizex - step * 3; x += step * 2, g0 = g1, g1 = g2, g2 = g3) {
-							base[x] += cubic(g0, g1, g2, g3 = base3[x]) / 2;
-						}
-						for (; x < sizex; x += step * 2, g0 = g1, g1 = g2) {
-							base[x] += cubic(g0, g1, g2, g2) / 2;
-						}
-					} else {
-						for (x = step; x < sizex - step; x += step * 2) {
-							base[x] -= (base1[x] + base2[x]) / 2;
-						}
-						if (x < sizex) {
-							base[x] -= base1[x];
-						}
-						for (x = step * 2; x < sizex - step; x += step * 2) {
-							base[x] += (base1[x] + base2[x]) / 4;
-						}
-						if (x < sizex) {
-							base[x] += base1[x] / 2;
-						}
+
+					for (x = step; x < sizex - step; x += step * 2) {
+						base[x] -= (base1[x] + base2[x]) / 2;
+					}
+					if (x < sizex) {
+						base[x] -= base1[x];
+					}
+					for (x = step * 2; x < sizex - step; x += step * 2) {
+						base[x] += (base1[x] + base2[x]) / 4;
+					}
+					if (x < sizex) {
+						base[x] += base1[x] / 2;
 					}
 				}
 			}
@@ -345,16 +322,9 @@ namespace GFWX {
 					T *const base = &image[y0 + y][x0];
 					T const *const c1base = &image[y0 + y - step][x0];
 					T const *const c2base = (y + step < sizey) ? &image[y0 + y + step][x0] : c1base;
-					if (filter == FilterCubic) {
-						T const *const c0base = (y - step * 3 >= 0) ? &image[y0 + y - step * 3][x0] : c1base;
-						T const *const c3base = (y + step * 3 < sizey) ? &image[y0 + y + step * 3][x0] : c2base;
-						for (int x = 0; x < sizex; x += step) {
-							base[x] -= cubic(c0base[x], c1base[x], c2base[x], c3base[x]);
-						}
-					} else {
-						for (int x = 0; x < sizex; x += step) {
-							base[x] -= (c1base[x] + c2base[x]) / 2;
-						}
+
+					for (int x = 0; x < sizex; x += step) {
+						base[x] -= (c1base[x] + c2base[x]) / 2;
 					}
 				}
 				OMP_PARALLEL_FOR(ThreadIterations)
@@ -362,16 +332,9 @@ namespace GFWX {
 					T *const base = &image[y0 + y][x0];
 					T const *const g1base = &image[y0 + y - step][x0];
 					T const *const g2base = (y + step < sizey) ? &image[y0 + y + step][x0] : g1base;
-					if (filter == FilterCubic) {
-						T const *const g0base = (y - step * 3 >= 0) ? &image[y0 + y - step * 3][x0] : g1base;
-						T const *const g3base = (y + step * 3 < sizey) ? &image[y0 + y + step * 3][x0] : g2base;
-						for (int x = 0; x < sizex; x += step) {
-							base[x] += cubic(g0base[x], g1base[x], g2base[x], g3base[x]) / 2;
-						}
-					} else {
-						for (int x = 0; x < sizex; x += step) {
-							base[x] += (g1base[x] + g2base[x]) / 4;
-						}
+
+					for (int x = 0; x < sizex; x += step) {
+						base[x] += (g1base[x] + g2base[x]) / 4;
 					}
 				}
 			}
@@ -380,7 +343,7 @@ namespace GFWX {
 	}
 
 	template<typename T>
-	void unlift(Image<T> &image, int x0, int y0, int x1, int y1, int minStep, int filter) {
+	void unlift_linear(Image<T> &image, int x0, int y0, int x1, int y1, int minStep) {
 		int const sizex = x1 - x0;
 		int const sizey = y1 - y0;
 		int step = minStep;
@@ -395,16 +358,9 @@ namespace GFWX {
 					T *const base = &image[y0 + y][x0];
 					T const *const g1base = &image[y0 + y - step][x0];
 					T const *const g2base = (y + step < sizey) ? &image[y0 + y + step][x0] : g1base;
-					if (filter == FilterCubic) {
-						T const *const g0base = (y - step * 3 >= 0) ? &image[y0 + y - step * 3][x0] : g1base;
-						T const *const g3base = (y + step * 3 < sizey) ? &image[y0 + y + step * 3][x0] : g2base;
-						for (int x = 0; x < sizex; x += step) {
-							base[x] -= cubic(g0base[x], g1base[x], g2base[x], g3base[x]) / 2;
-						}
-					} else {
-						for (int x = 0; x < sizex; x += step) {
-							base[x] -= (g1base[x] + g2base[x]) / 4;
-						}
+
+					for (int x = 0; x < sizex; x += step) {
+						base[x] -= (g1base[x] + g2base[x]) / 4;
 					}
 				}
 				OMP_PARALLEL_FOR(ThreadIterations)
@@ -412,16 +368,9 @@ namespace GFWX {
 					T *const base = &image[y0 + y][x0];
 					T const *const c1base = &image[y0 + y - step][x0];
 					T const *const c2base = (y + step < sizey) ? &image[y0 + y + step][x0] : c1base;
-					if (filter == FilterCubic) {
-						T const *const c0base = (y - step * 3 >= 0) ? &image[y0 + y - step * 3][x0] : c1base;
-						T const *const c3base = (y + step * 3 < sizey) ? &image[y0 + y + step * 3][x0] : c2base;
-						for (int x = 0; x < sizex; x += step) {
-							base[x] += cubic(c0base[x], c1base[x], c2base[x], c3base[x]);
-						}
-					} else {
-						for (int x = 0; x < sizex; x += step) {
-							base[x] += (c1base[x] + c2base[x]) / 2;
-						}
+
+					for (int x = 0; x < sizex; x += step) {
+						base[x] += (c1base[x] + c2base[x]) / 2;
 					}
 				}
 			}
@@ -433,41 +382,18 @@ namespace GFWX {
 					T *base = &image[y0 + y][x0];
 					T *base1 = base - step;
 					T *base2 = base + step;
-					T *base3 = base + step * 3;
-					if (filter == FilterCubic) {
-						T g0 = base[step];
-						T g1 = base[step];
-						T g2 = (step * 3 < sizex) ? base[step * 3] : base[step];
-						T g3;
-						for (x = step * 2; x < sizex - step * 3; x += step * 2, g0 = g1, g1 = g2, g2 = g3) {
-							base[x] -= cubic(g0, g1, g2, g3 = base3[x]) / 2;
-						}
-						for (; x < sizex; x += step * 2, g0 = g1, g1 = g2) {
-							base[x] -= cubic(g0, g1, g2, g2) / 2;
-						}
-						T c0 = *base;
-						T c1 = *base;
-						T c2 = (step * 2 < sizex) ? base[step * 2] : *base;
-						T c3;
-						for (x = step; x < sizex - step * 3; x += step * 2, c0 = c1, c1 = c2, c2 = c3) {
-							base[x] += cubic(c0, c1, c2, c3 = base3[x]);
-						}
-						for (; x < sizex; x += step * 2, c0 = c1, c1 = c2) {
-							base[x] += cubic(c0, c1, c2, c2);
-						}
-					} else {
-						for (x = step * 2; x < sizex - step; x += step * 2) {
-							base[x] -= (base1[x] + base2[x]) / 4;
-						}
-						if (x < sizex) {
-							base[x] -= base1[x] / 2;
-						}
-						for (x = step; x < sizex - step; x += step * 2) {
-							base[x] += (base1[x] + base2[x]) / 2;
-						}
-						if (x < sizex) {
-							base[x] += base1[x];
-						}
+
+					for (x = step * 2; x < sizex - step; x += step * 2) {
+						base[x] -= (base1[x] + base2[x]) / 4;
+					}
+					if (x < sizex) {
+						base[x] -= base1[x] / 2;
+					}
+					for (x = step; x < sizex - step; x += step * 2) {
+						base[x] += (base1[x] + base2[x]) / 2;
+					}
+					if (x < sizex) {
+						base[x] += base1[x];
 					}
 				}
 			}
@@ -475,7 +401,159 @@ namespace GFWX {
 		}
 	}
 
-	template<typename T, bool dequantize>
+	template<typename T>
+	void lift_cubic(Image<T> &image, int x0, int y0, int x1, int y1, int step) {
+		int const sizex = x1 - x0;
+		int const sizey = y1 - y0;
+		while ((step < sizex) || (step < sizey)) {
+			if (step < sizex) // horizontal lifting
+			{
+				OMP_PARALLEL_FOR(ThreadIterations)
+				for (int y = 0; y < sizey; y += step) {
+					int x;
+					T *base = &image[y0 + y][x0];
+					T *base3 = base + step * 3;
+
+					T c0 = *base;
+					T c1 = *base;
+					T c2 = (step * 2 < sizex) ? base[step * 2] : *base;
+					T c3;
+					for (x = step; x < sizex - step * 3; x += step * 2, c0 = c1, c1 = c2, c2 = c3) {
+						base[x] -= cubic(c0, c1, c2, c3 = base3[x]);
+					}
+					for (; x < sizex; x += step * 2, c0 = c1, c1 = c2) {
+						base[x] -= cubic(c0, c1, c2, c2);
+					}
+					T g0 = base[step];
+					T g1 = base[step];
+					T g2 = step * 3 < sizex ? base[step * 3] : base[step];
+					T g3;
+					for (x = step * 2; x < sizex - step * 3; x += step * 2, g0 = g1, g1 = g2, g2 = g3) {
+						base[x] += cubic(g0, g1, g2, g3 = base3[x]) / 2;
+					}
+					for (; x < sizex; x += step * 2, g0 = g1, g1 = g2) {
+						base[x] += cubic(g0, g1, g2, g2) / 2;
+					}
+				}
+			}
+			if (step < sizey) // vertical lifting
+			{
+				OMP_PARALLEL_FOR(ThreadIterations)
+				for (int y = step; y < sizey; y += step * 2) {
+					T *const base = &image[y0 + y][x0];
+					T const *const c1base = &image[y0 + y - step][x0];
+					T const *const c2base = (y + step < sizey) ? &image[y0 + y + step][x0] : c1base;
+
+					T const *const c0base = (y - step * 3 >= 0) ? &image[y0 + y - step * 3][x0] : c1base;
+					T const *const c3base = (y + step * 3 < sizey) ? &image[y0 + y + step * 3][x0] : c2base;
+					for (int x = 0; x < sizex; x += step) {
+						base[x] -= cubic(c0base[x], c1base[x], c2base[x], c3base[x]);
+					}
+				}
+				OMP_PARALLEL_FOR(ThreadIterations)
+				for (int y = step * 2; y < sizey; y += step * 2) {
+					T *const base = &image[y0 + y][x0];
+					T const *const g1base = &image[y0 + y - step][x0];
+					T const *const g2base = (y + step < sizey) ? &image[y0 + y + step][x0] : g1base;
+
+					T const *const g0base = (y - step * 3 >= 0) ? &image[y0 + y - step * 3][x0] : g1base;
+					T const *const g3base = (y + step * 3 < sizey) ? &image[y0 + y + step * 3][x0] : g2base;
+					for (int x = 0; x < sizex; x += step) {
+						base[x] += cubic(g0base[x], g1base[x], g2base[x], g3base[x]) / 2;
+					}
+				}
+			}
+			step *= 2;
+		}
+	}
+
+	template<typename T>
+	void unlift_cubic(Image<T> &image, int x0, int y0, int x1, int y1, int minStep) {
+		int const sizex = x1 - x0;
+		int const sizey = y1 - y0;
+		int step = minStep;
+		while ((step * 2 < sizex) || (step * 2 < sizey)) {
+			step *= 2;
+		}
+		while (step >= minStep) {
+			if (step < sizey) // vertical unlifting
+			{
+				OMP_PARALLEL_FOR(ThreadIterations)
+				for (int y = step * 2; y < sizey; y += step * 2) {
+					T *const base = &image[y0 + y][x0];
+					T const *const g1base = &image[y0 + y - step][x0];
+					T const *const g2base = (y + step < sizey) ? &image[y0 + y + step][x0] : g1base;
+
+					T const *const g0base = (y - step * 3 >= 0) ? &image[y0 + y - step * 3][x0] : g1base;
+					T const *const g3base = (y + step * 3 < sizey) ? &image[y0 + y + step * 3][x0] : g2base;
+					for (int x = 0; x < sizex; x += step) {
+						base[x] -= cubic(g0base[x], g1base[x], g2base[x], g3base[x]) / 2;
+					}
+				}
+				OMP_PARALLEL_FOR(ThreadIterations)
+				for (int y = step; y < sizey; y += step * 2) {
+					T *const base = &image[y0 + y][x0];
+					T const *const c1base = &image[y0 + y - step][x0];
+					T const *const c2base = (y + step < sizey) ? &image[y0 + y + step][x0] : c1base;
+
+					T const *const c0base = (y - step * 3 >= 0) ? &image[y0 + y - step * 3][x0] : c1base;
+					T const *const c3base = (y + step * 3 < sizey) ? &image[y0 + y + step * 3][x0] : c2base;
+					for (int x = 0; x < sizex; x += step) {
+						base[x] += cubic(c0base[x], c1base[x], c2base[x], c3base[x]);
+					}
+				}
+			}
+			if (step < sizex) // horizontal unlifting
+			{
+				OMP_PARALLEL_FOR(ThreadIterations)
+				for (int y = 0; y < sizey; y += step) {
+					int x;
+					T *base = &image[y0 + y][x0];
+					T *base3 = base + step * 3;
+
+					T g0 = base[step];
+					T g1 = base[step];
+					T g2 = (step * 3 < sizex) ? base[step * 3] : base[step];
+					T g3;
+					for (x = step * 2; x < sizex - step * 3; x += step * 2, g0 = g1, g1 = g2, g2 = g3) {
+						base[x] -= cubic(g0, g1, g2, g3 = base3[x]) / 2;
+					}
+					for (; x < sizex; x += step * 2, g0 = g1, g1 = g2) {
+						base[x] -= cubic(g0, g1, g2, g2) / 2;
+					}
+					T c0 = *base;
+					T c1 = *base;
+					T c2 = (step * 2 < sizex) ? base[step * 2] : *base;
+					T c3;
+					for (x = step; x < sizex - step * 3; x += step * 2, c0 = c1, c1 = c2, c2 = c3) {
+						base[x] += cubic(c0, c1, c2, c3 = base3[x]);
+					}
+					for (; x < sizex; x += step * 2, c0 = c1, c1 = c2) {
+						base[x] += cubic(c0, c1, c2, c2);
+					}
+				}
+			}
+			step /= 2;
+		}
+	}
+
+	template<typename T>
+	void lift(Image<T> &image, int x0, int y0, int x1, int y1, int step, int filter) {
+		if (filter == FilterLinear)
+			lift_linear(image, x0, y0, x1, y1, step);
+		else
+			lift_cubic(image, x0, y0, x1, y1, step);
+	}
+
+	template<typename T>
+	void unlift(Image<T> &image, int x0, int y0, int x1, int y1, int minStep, int filter) {
+		if (filter == FilterLinear)
+			unlift_linear(image, x0, y0, x1, y1, minStep);
+		else
+			unlift_cubic(image, x0, y0, x1, y1, minStep);
+	}
+
+	template<typename T>
 	void quantize(Image<T> &image, int x0, int y0, int x1, int y1, int step, int quality, int minQ, int maxQ) {
 		typedef typename std::conditional<sizeof(T) < 4, int32_t, int64_t>::type aux;
 		int const sizex = x1 - x0;
@@ -494,16 +572,39 @@ namespace GFWX {
 				T *base = &image[y0 + y][x0];
 				int const xStep = (y & skip) ? skip : skip * 2;
 				for (int x = xStep - skip; x < sizex; x += xStep) { // [NOTE] arranged so that (x | y) & skip == 1
-					if (dequantize) {
-						if (base[x] < 0)
-							base[x] = (aux(base[x]) * maxQ - (maxQ / 2)) / q;
-						else if (base[x] > 0)
-							base[x] = (aux(base[x]) * maxQ + (maxQ / 2)) / q;
-						else
-							base[x] = (aux(base[x]) * maxQ) / q;
-					} else {
-						base[x] = aux(base[x]) * q / maxQ;
-					}
+					base[x] = aux(base[x]) * q / maxQ;
+				}
+			}
+			skip *= 2;
+			quality = std::min(maxQ, quality * 2); // [MAGIC] This approximates the JPEG 2000 baseline quantizer
+		}
+	}
+
+	template<typename T>
+	void dequantize(Image<T> &image, int x0, int y0, int x1, int y1, int step, int quality, int minQ, int maxQ) {
+		typedef typename std::conditional<sizeof(T) < 4, int32_t, int64_t>::type aux;
+		int const sizex = x1 - x0;
+		int const sizey = y1 - y0;
+		int skip = step;
+
+		while ((skip < sizex) && (skip < sizey)) {
+			int const q = std::max(std::max(1, minQ), quality);
+
+			if (q >= maxQ) {
+				break;
+			}
+
+			OMP_PARALLEL_FOR(ThreadIterations)
+			for (int y = 0; y < sizey; y += skip) {
+				T *base = &image[y0 + y][x0];
+				int const xStep = (y & skip) ? skip : skip * 2;
+				for (int x = xStep - skip; x < sizex; x += xStep) { // [NOTE] arranged so that (x | y) & skip == 1
+					if (base[x] < 0)
+						base[x] = (aux(base[x]) * maxQ - (maxQ / 2)) / q;
+					else if (base[x] > 0)
+						base[x] = (aux(base[x]) * maxQ + (maxQ / 2)) / q;
+					else
+						base[x] = (aux(base[x]) * maxQ) / q;
 				}
 			}
 			skip *= 2;
@@ -641,8 +742,8 @@ namespace GFWX {
 					} else {
 						signedCode<4>(s, stream);
 					}
-					if (scheme == EncoderFast)        // use decaying first and second moment
-					{
+					if (scheme == EncoderFast) {
+						// use decaying first and second moment
 						uint32_t const t = abs(s);
 						context = std::make_pair(((context.first * 15u + 7u) >> 4) + t,
 									 ((context.second * 15u + 7u) >> 4) +
@@ -678,7 +779,7 @@ namespace GFWX {
 				}
 			}
 		}
-		if (run) {        // flush run
+		if (run) { // flush run
 			if (runCoder == 1)
 				unsignedCode<1>(run, stream);
 			else if (runCoder == 2)
@@ -757,8 +858,8 @@ namespace GFWX {
 						} else {
 							s = signedDecode<4>(stream);
 						}
-						if (scheme == EncoderFast)        // use decaying first and second moment
-						{
+						if (scheme == EncoderFast) {
+							// use decaying first and second moment
 							uint32_t const t = abs(s);
 							context = std::make_pair(((context.first * 15u + 7u) >> 4) + t,
 										 ((context.second * 15u + 7u) >> 4) +
@@ -859,15 +960,16 @@ namespace GFWX {
 		typedef typename std::remove_reference<decltype(imageData[0])>::type base;
 		typedef typename std::conditional<sizeof(base) < 2, int16_t, int32_t>::type aux;
 
-		if ((header.sizex > (1 << 30)) || (header.sizey > (1 << 30))) {  // [NOTE] current implementation can't go over 2^30
+		if ((header.width > (1 << 30)) || (header.height > (1 << 30))) {
+			// [NOTE] current implementation can't go over 2^30
 			return ErrorMalformed;
 		}
 
 		Bits stream(reinterpret_cast<uint32_t *>(buffer), reinterpret_cast<uint32_t *>(buffer) + size / 4);
 		stream.putBits('G' | ('F' << 8) | ('W' << 16) | ('X' << 24), 32);
 		stream.putBits(header.version = 1, 32);
-		stream.putBits(header.sizex, 32);
-		stream.putBits(header.sizey, 32);
+		stream.putBits(header.width, 32);
+		stream.putBits(header.height, 32);
 		stream.putBits(header.layers - 1, 16);
 		stream.putBits(header.channels - 1, 16);
 		stream.putBits((header.bitDepth ? header.bitDepth : (header.bitDepth = std::numeric_limits<base>::digits)) - 1, 8);
@@ -883,7 +985,7 @@ namespace GFWX {
 
 		stream.buffer = std::copy(reinterpret_cast<uint32_t *>(metaData),
 					  reinterpret_cast<uint32_t *>(metaData) + metaDataSize / 4, stream.buffer);
-		int const bufferSize = header.sizex * header.sizey;
+		int const bufferSize = header.width * header.height;
 		std::vector<aux> auxData((size_t) header.layers * header.channels * bufferSize, 0);
 		std::vector<int> isChroma(header.layers * header.channels, -1);
 		int const chromaQuality = std::max(1, (header.quality + header.chromaScale / 2) / header.chromaScale);
@@ -924,19 +1026,19 @@ namespace GFWX {
 		}
 		for (int c = 0; c < header.layers * header.channels; ++c) // lift and quantize the channels
 		{
-			Image<aux> auxImage(&auxData[c * bufferSize], header.sizex, header.sizey);
-			lift(auxImage, 0, 0, header.sizex, header.sizey, 1, header.filter);
-			quantize<aux, false>(auxImage, 0, 0, header.sizex, header.sizey, 1,
+			Image<aux> auxImage(&auxData[c * bufferSize], header.width, header.height);
+			lift(auxImage, 0, 0, header.width, header.height, 1, header.filter);
+			quantize<aux>(auxImage, 0, 0, header.width, header.height, 1,
 				isChroma[c] ? chromaQuality : header.quality, 0, QualityMax * boost);
 		}
 		int step = 1;
-		while ((step * 2 < header.sizex) || (step * 2 < header.sizey)) {
+		while ((step * 2 < header.width) || (step * 2 < header.height)) {
 			step *= 2;
 		}
 		for (bool hasDC = true; step >= 1; hasDC = false) {
 			int64_t const bs = int64_t(step) << header.blockSize;
-			int const blockCountX = (header.sizex + bs - 1) / bs;
-			int const blockCountY = (header.sizey + bs - 1) / bs;
+			int const blockCountX = (header.width + bs - 1) / bs;
+			int const blockCountY = (header.height + bs - 1) / bs;
 			int const blockCount = blockCountX * blockCountY * header.layers * header.channels;
 			std::vector<Bits> streamBlock(blockCount, Bits(0, 0));
 			uint32_t *blockBegin = stream.buffer + blockCount; // leave space for block sizes
@@ -954,11 +1056,11 @@ namespace GFWX {
 				int const bx = block % blockCountX;
 				int by = (block / blockCountX) % blockCountY;
 				int c = block / (blockCountX * blockCountY);
-				Image<aux> auxImage(&auxData[c * bufferSize], header.sizex, header.sizey);
+				Image<aux> auxImage(&auxData[c * bufferSize], header.width, header.height);
 		
 				encode(auxImage, streamBlock[block], bx * bs, by * bs,
-					int(std::min((bx + 1) * bs, int64_t(header.sizex))),
-					int(std::min((by + 1) * bs, int64_t(header.sizey))),
+					int(std::min((bx + 1) * bs, int64_t(header.width))),
+					int(std::min((by + 1) * bs, int64_t(header.height))),
 					step, header.encoder, isChroma[c] ? chromaQuality : header.quality,
 					hasDC && !bx && !by, isChroma[c] != 0);
 
@@ -986,15 +1088,15 @@ namespace GFWX {
 		typedef typename std::conditional<sizeof(base) < 2, int16_t, int32_t>::type aux;
 		Bits stream(reinterpret_cast<uint32_t *>(const_cast<uint8_t *>(data)),
 			    reinterpret_cast<uint32_t *>(const_cast<uint8_t *>(data)) + size / 4);
-		if (size < 28) {        // at least load the header
-			return 28;
+		if (size < 28) {
+			return 28; // at least load the header
 		}
 		if (stream.getBits(32) != uint32_t('G' | ('F' << 8) | ('W' << 16) | ('X' << 24))) {
 			return ErrorMalformed;
 		}
 		header.version = stream.getBits(32);
-		header.sizex = stream.getBits(32);
-		header.sizey = stream.getBits(32);
+		header.width = stream.getBits(32);
+		header.height = stream.getBits(32);
 		header.layers = stream.getBits(16) + 1;
 		header.channels = stream.getBits(16) + 1;
 		header.bitDepth = stream.getBits(8) + 1;
@@ -1007,8 +1109,8 @@ namespace GFWX {
 		header.encoder = stream.getBits(8);
 		header.intent = stream.getBits(8);
 
-		if ((header.sizex < 0) || (header.sizex > (1 << 30)) ||
-			(header.sizey < 0) || (header.sizey > (1 << 30)) ||
+		if ((header.width < 0) || (header.width > (1 << 30)) ||
+			(header.height < 0) || (header.height > (1 << 30)) ||
 			(header.bufferSize() == 0)) {
 			return ErrorMalformed;
 		}  // [NOTE] current implementation can't go over 2^30
@@ -1017,14 +1119,14 @@ namespace GFWX {
 		}
 		if (header.isSigned != (std::numeric_limits<base>::is_signed ? 1 : 0) ||
 		    header.bitDepth > std::numeric_limits<base>::digits) {
-			return ErrorTypeMismatch;
-		}        // check for correct buffer type (though doesn't test the buffer size)
+			return ErrorTypeMismatch; // check for correct buffer type (though doesn't test the buffer size)
+		}
 		// [NOTE] clients can read metadata themselves by accessing the size (in words) at word[7] and the metadata at word[8+]
 		if ((stream.buffer += stream.getBits(32)) >= stream.bufferEnd) { // skip metadata
 			return reinterpret_cast<uint8_t *>(stream.buffer) - data;
 		}        // suggest point of interest to skip metadata
-		int const sizexDown = (header.sizex + (1 << downsampling) - 1) >> downsampling, sizeyDown =
-			(header.sizey + (1 << downsampling) - 1) >> downsampling;
+		int const sizexDown = (header.width + (1 << downsampling) - 1) >> downsampling;
+		int const sizeyDown = (header.height + (1 << downsampling) - 1) >> downsampling;
 		int const bufferSize = sizexDown * sizeyDown;
 		std::vector<aux> auxData((size_t) header.layers * header.channels * bufferSize, 0);
 		std::vector<int> isChroma(header.layers * header.channels, 0), transformProgram, transformSteps;
@@ -1042,7 +1144,7 @@ namespace GFWX {
 			while (true) {
 				if (stream.indexBits < 0) { // test for truncation
 					return nextPointOfInterest;
-				}        // need more data
+				} // need more data
 				transformProgram.push_back(signedDecode<2>(stream)); // other channel
 				if (transformProgram.back() >= static_cast<int>(isChroma.size())) {
 					return ErrorMalformed;
@@ -1061,14 +1163,14 @@ namespace GFWX {
 		int const boost = header.quality == QualityMax ? 1 : 8; // [NOTE] due to Cubic lifting max multiplier of 20, boost * 20 must be less than 256
 		bool isTruncated = false;
 		int step = 1;
-		while ((step * 2 < header.sizex) || (step * 2 < header.sizey)) {
+		while ((step * 2 < header.width) || (step * 2 < header.height)) {
 			step *= 2;
 		}
 		for (bool hasDC = true; (step >> downsampling) >= 1; hasDC = false) // decode just enough coefficients for downsampled image
 		{
 			int64_t const bs = int64_t(step) << header.blockSize;
-			int const blockCountX = int((header.sizex + bs - 1) / bs);
-			int const blockCountY = int((header.sizey + bs - 1) / bs);
+			int const blockCountX = int((header.width + bs - 1) / bs);
+			int const blockCountY = int((header.height + bs - 1) / bs);
 			int const blockCount = blockCountX * blockCountY * header.layers * header.channels;
 			isTruncated = true;
 			if ((stream.buffer + 1 + blockCount) > stream.bufferEnd) { // check for enough buffer to read block sizes
@@ -1092,7 +1194,7 @@ namespace GFWX {
 			int64_t const bsDown = int64_t(stepDown) << header.blockSize;
 			OMP_PARALLEL_FOR(4) // [MAGIC] for some reason, 4 is by far the best option here
 			for (int block = 0; block < blockCount; ++block) {
-				if (!test && streamBlock[block].bufferEnd <= stream.bufferEnd) {
+				if (!test && (streamBlock[block].bufferEnd <= stream.bufferEnd)) {
 					int const bx = block % blockCountX;
 					int by = (block / blockCountX) % blockCountY;
 					int c = block / (blockCountX * blockCountY);
@@ -1105,7 +1207,8 @@ namespace GFWX {
 						hasDC && !bx && !by, isChroma[c] != 0);
 				}
 			}
-			for (int block = 0; block < blockCount; ++block) { // check if any blocks ran out of buffer, which should not happen on valid files
+			for (int block = 0; block < blockCount; ++block) {
+				// check if any blocks ran out of buffer, which should not happen on valid files
 				if (streamBlock[block].indexBits < 0) {
 					return ErrorMalformed;
 				}
@@ -1113,13 +1216,14 @@ namespace GFWX {
 			step /= 2;
 		}
 		if (test) {
+			// return next point of interest if the data was truncated prior to completing request
 			return isTruncated ? nextPointOfInterest : ResultOk;
-		}        // return next point of interest if the data was truncated prior to completing request
+		}
 		for (int c = 0; c < header.layers * header.channels; ++c) // dequantize and unlift the channels
 		{
 			Image<aux> auxImage(&auxData[c * bufferSize], sizexDown, sizeyDown);
 
-			quantize<aux, true>(auxImage, 0, 0, sizexDown, sizeyDown, 1,
+			dequantize<aux>(auxImage, 0, 0, sizexDown, sizeyDown, 1,
 				(isChroma[c] ? chromaQuality : header.quality) << downsampling, 0, QualityMax * boost);
 
 			unlift(auxImage, 0, 0, sizexDown, sizeyDown, 1, header.filter);
