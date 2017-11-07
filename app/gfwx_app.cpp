@@ -21,10 +21,13 @@ int gfwx_encode_file(const char* input, const char* output)
 	uint32_t inSize;
 	uint32_t imgWidth;
 	uint32_t imgHeight;
-	double ms, sec;
+	uint32_t imgRawSize;
+	uint32_t imgEncSize;
 	uint64_t timer1;
 	uint64_t timer2;
+	uint64_t diff;
 	uint32_t bytesPerPixel = 3;
+	double compressionRatio;
 
 	int layers = 1;                               // just one image layer
 	int channels = 3;                             // 3 interleaved channels
@@ -41,6 +44,8 @@ int gfwx_encode_file(const char* input, const char* output)
 	if (!gfwx_PngReadFile(input, &inData, &imgWidth, &imgHeight, bytesPerPixel))
 		return -1;
 
+	imgRawSize = (imgWidth * 3) * imgHeight;
+
 	GFWX::Header header(imgWidth, imgHeight, layers, channels, bitDepth, quality,
 		chromaScale, blockSize, filter, quantization, encoder, intent);
 
@@ -52,10 +57,13 @@ int gfwx_encode_file(const char* input, const char* output)
 	gfwxSize = (uint32_t) GFWX::compress(inData, header, gfwxData, gfwxSize, transform, 0, 0);
 	timer2 = gfwx_GetTime();
 
-	ms = (double) (timer2 - timer1);
-	sec = ms / 1000;
+	diff = (timer2 - timer1);
 
-	printf(" %lf seconds to compress %d Bytes\n", sec, (int) gfwx_FileSize(input));
+	imgEncSize = (uint32_t) gfwxSize;
+	compressionRatio = ((double) imgEncSize) / ((double) imgRawSize);
+
+	printf("%d ms to compress %d pixel bytes\n", (int) diff, (int) imgRawSize);
+	printf("compression ratio: %.2f%% (%d/%d)\n", compressionRatio * 100, imgEncSize, imgRawSize);
 
 	gfwx_WriteFile(output, gfwxData, gfwxSize);
 	free(gfwxData);
@@ -71,11 +79,12 @@ int gfwx_decode_file(const char* input, const char* output)
 	uint32_t outSize;
 	uint32_t imgWidth;
 	uint32_t imgHeight;
+	uint32_t imgRawSize;
 	size_t fileSize;
 	uint8_t* fileData;
-	double ms, sec;
 	uint64_t timer1;
 	uint64_t timer2;
+	uint64_t diff;
 	GFWX::Header header;
 	uint32_t bytesPerPixel = 3;
 
@@ -97,6 +106,7 @@ int gfwx_decode_file(const char* input, const char* output)
 
 	imgWidth = header.sizex;
 	imgHeight = header.sizey;
+	imgRawSize = (imgWidth * 3) * imgHeight;
 
 	outSize = (imgWidth * bytesPerPixel) * imgHeight;
 	outData = (uint8_t*) malloc(outSize);
@@ -105,15 +115,14 @@ int gfwx_decode_file(const char* input, const char* output)
 	result = GFWX::decompress(outData, header, gfwxData, gfwxSize, 0, false);
 	timer2 = gfwx_GetTime();
 
-	ms = (double) (timer2 - timer1);
-	sec = ms / 1000;
+	diff = (timer2 - timer1);
 
 	if (result != GFWX::ResultOk)
 		return (int) result;
 
 	gfwx_PngWriteFile(output, outData, imgWidth, imgHeight, bytesPerPixel);
 
-	printf(" %lf seconds to decompress %d Bytes\n", sec, (int) gfwx_FileSize(input));
+	printf("%d ms to decompress %d pixel bytes\n", (int) diff, (int) imgRawSize);
 
 	return 1;
 }

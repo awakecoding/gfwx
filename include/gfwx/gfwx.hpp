@@ -67,8 +67,8 @@
 
 namespace GFWX {
 	enum {
-		QualityMax = 1024,		// compress with QualityMax for 100% lossless, or less than QualityMax for lossy
-		ThreadIterations = 64,		// OMP settings tuned on my machine with large images
+		QualityMax = 1024,
+		ThreadIterations = 64,
 		BitDepthAuto = 0,
 		BlockDefault = 7,
 		BlockMax = 30,
@@ -79,19 +79,10 @@ namespace GFWX {
 		EncoderFast = 1,
 		EncoderContextual = 2,
 		IntentGeneric = 0,
-		IntentMono = 1,
-		IntentBayerRGGB = 2,
-		IntentBayerBGGR = 3,
-		IntentBayerGRBG = 4,
-		IntentBayerGBRG = 5,
-		IntentBayerGeneric = 6,
 		IntentRGB = 7,
 		IntentRGBA = 8,
-		IntentRGBApremult = 9,
 		IntentBGR = 10,
 		IntentBGRA = 11,
-		IntentBGRApremult = 12,
-		IntentCMYK = 13,
 		ResultOk = 0,
 		ErrorOverflow = -1,
 		ErrorMalformed = -2,
@@ -147,11 +138,14 @@ namespace GFWX {
 
 	struct Bits
 	{
-		uint32_t *buffer, *bufferEnd;
+		uint32_t* buffer;
+		uint32_t* bufferEnd;
 		uint32_t writeCache;
 		int indexBits;        // -1 indicates buffer overflow
-		Bits(uint32_t *buffer, uint32_t *bufferEnd) : buffer(buffer), bufferEnd(bufferEnd), writeCache(0),
-							      indexBits(0) {}
+
+		Bits(uint32_t *buffer, uint32_t *bufferEnd) :
+			buffer(buffer), bufferEnd(bufferEnd), writeCache(0), indexBits(0) {
+		}
 
 		uint32_t getBits(int bits) {
 			int newBits = indexBits + bits;
@@ -906,24 +900,8 @@ namespace GFWX {
 		{
 			Image<aux> auxImage(&auxData[c * bufferSize], header.sizex, header.sizey);
 			lift(auxImage, 0, 0, header.sizex, header.sizey, 1, header.filter);
-			if ((header.intent >= IntentBayerRGGB) && (header.intent <= IntentBayerGeneric)) {
-				for (int ox = 0; ox <= 1; ++ox) {
-					for (int oy = 1 - ox; oy <= 1; ++oy) {
-						lift(auxImage, ox, oy, header.sizex, header.sizey, 2, header.filter);
-					}
-				}
-				for (int ox = 0; ox <= 1; ++ox) {
-					for (int oy = 0; oy <= 1; ++oy) {
-						quantize<aux, false>(auxImage, ox, oy, header.sizex, header.sizey, 2,
-								     (ox | oy) ? chromaQuality : header.quality,
-								     header.quality, QualityMax * boost);
-					}
-				}
-			} else {
-				quantize<aux, false>(auxImage, 0, 0, header.sizex, header.sizey, 1,
-						     isChroma[c] ? chromaQuality : header.quality, 0,
-						     QualityMax * boost);
-			}
+			quantize<aux, false>(auxImage, 0, 0, header.sizex, header.sizey, 1,
+				isChroma[c] ? chromaQuality : header.quality, 0, QualityMax * boost);
 		}
 		int step = 1;
 		while ((step * 2 < header.sizex) || (step * 2 < header.sizey)) {
@@ -951,24 +929,13 @@ namespace GFWX {
 				int by = (block / blockCountX) % blockCountY;
 				int c = block / (blockCountX * blockCountY);
 				Image<aux> auxImage(&auxData[c * bufferSize], header.sizex, header.sizey);
-				if (header.intent < IntentBayerRGGB || header.intent > IntentBayerGeneric) {
-					encode(auxImage, streamBlock[block], bx * bs, by * bs,
-					       int(std::min((bx + 1) * bs, int64_t(header.sizex))),
-					       int(std::min((by + 1) * bs, int64_t(header.sizey))),
-					       step, header.encoder, isChroma[c] ? chromaQuality : header.quality,
-					       hasDC && !bx && !by, isChroma[c] != 0);
-				} else {
-					for (int ox = 0; ox <= 1; ++ox) {
-						for (int oy = 0; oy <= 1; ++oy) {
-							encode(auxImage, streamBlock[block], bx * bs + ox, by * bs + oy,
-							       int(std::min((bx + 1) * bs, int64_t(header.sizex))),
-							       int(std::min((by + 1) * bs, int64_t(header.sizey))),
-							       2 * step, header.encoder,
-							       (ox || oy) ? chromaQuality : header.quality,
-							       hasDC && !bx && !by, ox || oy);
-						}
-					}
-				}
+		
+				encode(auxImage, streamBlock[block], bx * bs, by * bs,
+					int(std::min((bx + 1) * bs, int64_t(header.sizex))),
+					int(std::min((by + 1) * bs, int64_t(header.sizey))),
+					step, header.encoder, isChroma[c] ? chromaQuality : header.quality,
+					hasDC && !bx && !by, isChroma[c] != 0);
+
 				streamBlock[block].flushWriteWord();
 			}
 			for (int block = 0; block < blockCount; ++block) {        // check streamBlocks for overflow
@@ -1105,26 +1072,12 @@ namespace GFWX {
 					int by = (block / blockCountX) % blockCountY;
 					int c = block / (blockCountX * blockCountY);
 					Image<aux> auxImage(&auxData[c * bufferSize], sizexDown, sizeyDown);
-					if (header.intent < IntentBayerRGGB || header.intent > IntentBayerGeneric) {
-						decode(auxImage, streamBlock[block], int(bx * bsDown), int(by * bsDown),
-						       int(std::min((bx + 1) * bsDown, int64_t(sizexDown))),
-						       int(std::min((by + 1) * bsDown, int64_t(sizeyDown))),
-						       stepDown, header.encoder,
-						       isChroma[c] ? chromaQuality : header.quality,
-						       hasDC && !bx && !by, isChroma[c] != 0);
-					} else {
-						for (int ox = 0; ox <= 1; ++ox) {
-							for (int oy = 0; oy <= 1; ++oy) {
-								decode(auxImage, streamBlock[block],
-								       int(bx * bsDown + ox), int(by * bsDown + oy),
-								       int(std::min((bx + 1) * bsDown, int64_t(sizexDown))),
-								       int(std::min((by + 1) * bsDown, int64_t(sizeyDown))),
-								       2 * stepDown, header.encoder,
-								       (ox || oy) ? chromaQuality : header.quality,
-								       hasDC && !bx && !by, ox || oy);
-							}
-						}
-					}
+					
+					decode(auxImage, streamBlock[block], int(bx * bsDown), int(by * bsDown),
+						int(std::min((bx + 1) * bsDown, int64_t(sizexDown))),
+						int(std::min((by + 1) * bsDown, int64_t(sizeyDown))),
+						stepDown, header.encoder, isChroma[c] ? chromaQuality : header.quality,
+						hasDC && !bx && !by, isChroma[c] != 0);
 				}
 			}
 			for (int block = 0; block < blockCount; ++block) {        // check if any blocks ran out of buffer, which should not happen on valid files
@@ -1140,25 +1093,10 @@ namespace GFWX {
 		for (int c = 0; c < header.layers * header.channels; ++c)        // dequantize and unlift the channels
 		{
 			Image<aux> auxImage(&auxData[c * bufferSize], sizexDown, sizeyDown);
-			if ((header.intent >= IntentBayerRGGB) && (header.intent <= IntentBayerGeneric)) {
-				for (int ox = 0; ox <= 1; ++ox) {
-					for (int oy = 0; oy <= 1; ++oy) {
-						quantize<aux, true>(auxImage, ox, oy, sizexDown, sizeyDown, 2,
-								    ((ox | oy) ? chromaQuality : header.quality)
-									    << downsampling, header.quality,
-								    QualityMax * boost);
-					}
-				}
-				for (int ox = 0; ox <= 1; ++ox) {
-					for (int oy = 1 - ox; oy <= 1; ++oy) {
-						unlift(auxImage, ox, oy, sizexDown, sizeyDown, 2, header.filter);
-					}
-				}
-			} else {
-				quantize<aux, true>(auxImage, 0, 0, sizexDown, sizeyDown, 1,
-						    (isChroma[c] ? chromaQuality : header.quality) << downsampling, 0,
-						    QualityMax * boost);
-			}
+
+			quantize<aux, true>(auxImage, 0, 0, sizexDown, sizeyDown, 1,
+				(isChroma[c] ? chromaQuality : header.quality) << downsampling, 0, QualityMax * boost);
+
 			unlift(auxImage, 0, 0, sizexDown, sizeyDown, 1, header.filter);
 		}
 		for (int s = (int) transformSteps.size() - 1; s >= 0; --s)        // run color transform program in reverse
@@ -1192,37 +1130,6 @@ namespace GFWX {
 						static_cast<aux>(std::numeric_limits<base>::lowest()),
 						std::min(static_cast<aux>(std::numeric_limits<base>::max()),
 							 static_cast<aux>(destination[i] / boost))));
-				}
-			}
-			if (header.quality < QualityMax && header.intent >= IntentBayerRGGB &&
-			    header.intent <= IntentBayerGBRG)        // check if Bayer cleanup is required
-			{
-				int const bayerNoiseThresh = ((QualityMax + header.quality / 2) / header.quality +
-							      (QualityMax + chromaQuality / 2) / chromaQuality) * 2;
-				Image<aux> auxImage(&auxData[c * bufferSize], sizexDown, sizeyDown);
-				OMP_PARALLEL_FOR(ThreadIterations)
-				for (int y = 1; y < sizeyDown - 1; ++y) {
-					for (int x = 1 + (y + (header.intent == IntentBayerGBRG || header.intent == IntentBayerGRBG ? 1 : 0)) % 2;
-						x < sizexDown - 1; x += 2) {
-						aux s = auxImage[y][x];
-						aux sum = s * 4;
-						int count = 4;
-						for (int oy = -1; oy <= 1; oy += 2) {
-							for (int ox = -1; ox <= 1; ox += 2) {
-								aux t = auxImage[y + oy][x + ox];
-								if (abs(s - t) > bayerNoiseThresh) {
-									continue;
-								}
-								sum += t;
-								++count;
-							}
-						}
-						layer[(y * sizexDown + x) * header.channels]
-							= static_cast<base>(std::max(
-							static_cast<aux>(std::numeric_limits<base>::lowest()),
-							std::min(static_cast<aux>(std::numeric_limits<base>::max()),
-								 aux((sum + count / 2) / (count * boost)))));
-					}
 				}
 			}
 		}
